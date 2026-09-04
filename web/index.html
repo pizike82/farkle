@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Farkle</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="menu">
+    <button id="menuBtn" type="button" aria-label="Settings" aria-expanded="false" aria-controls="menuDrop">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+        <path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 2h-3.8a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.13.55-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.7 8.48a.5.5 0 0 0 .12.64L4.85 10.7c-.04.31-.06.63-.06.94s.02.63.06.94L2.82 14.16a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.43.34.7.22l2.39-.96c.5.39 1.04.7 1.63.94l.36 2.54c.05.24.26.42.5.42h3.8c.24 0 .45-.18.5-.42l.36-2.54c.59-.24 1.13-.55 1.63-.94l2.39.96c.27.12.56.02.7-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/>
+      </svg>
+    </button>
+    <div id="menuDrop" class="menu-drop" hidden>
+      <label class="menu-setting">
+        <span>Secondary color</span>
+        <input id="accentColor" type="color" value="#ff5a00" />
+      </label>
+      <button id="statsBtn" type="button">Stats</button>
+      <button id="abandon" type="button">Abandon</button>
+      <button id="new" type="button">New game</button>
+    </div>
+  </div>
+  <main>
+    <h1><img src="img/logo_farkle.png" alt="Farkle" /></h1>
+    <div class="play">
+    <div class="scores">
+      <div class="score"><span>Total</span><b id="total">0</b></div>
+      <div class="score"><span>Turn</span><b id="turn">0</b></div>
+      <div class="score"><span>Selected</span><b id="selected">0</b></div>
+      <div class="score"><span>Round</span><b id="round">0</b></div>
+      <div class="score"><span>Goal</span><b id="target">10000</b></div>
+      <div class="score"><span>Time</span><b id="clock">0:00</b></div>
+      <div class="score"><span>Nerve</span><b id="nerve">1000</b></div>
+    </div>
+    <div id="tray" class="tray" aria-label="Dice">
+      <div class="die" role="button" tabindex="0" aria-label="Die 1">
+        <div class="cube">
+          <div class="face"></div>
+          <div class="face"></div>
+          <div class="face"></div>
+          <div class="face"></div>
+          <div class="face"></div>
+          <div class="face"></div>
+        </div>
+      </div>
+    </div>
+    <p id="hotBanner" class="hot-banner" hidden>Hot dice</p>
+    <div id="hotFlash" class="hot-flash" aria-hidden="true"></div>
+    <p id="msg" class="msg">Roll to start.</p>
+    <div class="actions">
+      <button id="roll" type="button">Roll</button>
+      <button id="bank" type="button" disabled>Bank</button>
+      <button id="order" type="button" disabled>Order</button>
+      <button id="pause" type="button" disabled>Pause</button>
+    </div>
+    <div id="confirm" class="confirm" hidden>
+      <p>Are you sure?</p>
+      <div class="confirm-actions">
+        <button id="confirmYes" type="button">Abandon</button>
+        <button id="confirmNo" type="button">Cancel</button>
+      </div>
+    </div>
+    <section id="statsPanel" class="stats-panel" hidden></section>
+    </div>
+  </main>
+  <script src="https://unpkg.co/gsap@3/dist/gsap.min.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
