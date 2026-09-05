@@ -18,6 +18,8 @@
         <span>Secondary color</span>
         <input id="accentColor" type="color" value="#ff5a00" />
       </label>
+      <button id="storeBtn" type="button">Store</button>
+      <button id="decorBtn" type="button">Decorations</button>
       <button id="statsBtn" type="button">Stats</button>
       <button id="abandon" type="button">Abandon</button>
       <button id="new" type="button">New game</button>
@@ -26,6 +28,7 @@
   <main>
     <h1><img src="img/logo_farkle_pizike.png" alt="Farkle" /></h1>
     <div class="play">
+    <div id="playArea" class="play-area" aria-label="Play area">
     <div class="scores">
       <div class="score"><span>Total</span><b id="total">0</b></div>
       <div class="score"><span>Turn</span><b id="turn">0</b></div>
@@ -56,6 +59,29 @@
       <button id="order" type="button" disabled>Order</button>
       <button id="pause" type="button" disabled>Pause</button>
     </div>
+    </div>
+    <section id="storePanel" class="shop-panel" hidden>
+      <header class="shop-head">
+        <div>
+          <h2>Store</h2>
+          <p class="shop-wallet">Current Wallet <b id="storeWallet">0</b></p>
+        </div>
+        <button id="storeBack" type="button">Back</button>
+      </header>
+      <p id="storeMsg" class="shop-msg" hidden></p>
+      <div id="storeGrid" class="shop-grid"></div>
+    </section>
+    <section id="decorPanel" class="shop-panel" hidden>
+      <header class="shop-head">
+        <div>
+          <h2>Decorations</h2>
+          <p class="shop-wallet">Collected stickers</p>
+        </div>
+        <button id="decorBack" type="button">Back</button>
+      </header>
+      <p id="decorEmpty" class="shop-empty" hidden>No decorations yet. Visit the Store to buy stickers.</p>
+      <div id="decorGrid" class="shop-grid"></div>
+    </section>
     <div id="confirm" class="confirm" hidden>
       <p>Are you sure?</p>
       <div class="confirm-actions">
@@ -66,6 +92,26 @@
     <section id="statsPanel" class="stats-panel" hidden></section>
     </div>
   </main>
+  <div id="stickerBoard" class="sticker-board" aria-hidden="true"></div>
+  <div id="placeOverlay" class="place-overlay" hidden>
+    <div id="placeItem" class="place-item">
+      <div id="placeRing" class="place-ring" hidden></div>
+      <img id="placeImg" class="place-img" alt="" draggable="false" />
+      <button id="placeScale" class="place-scale" type="button" aria-label="Resize sticker"></button>
+      <button id="placeOk" class="place-ok" type="button" aria-label="Place sticker">
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+          <path fill="currentColor" d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+  <div id="peelConfirm" class="confirm confirm-float" hidden>
+    <p>Peel this sticker off? You'll lose it until you buy it again.</p>
+    <div class="confirm-actions">
+      <button id="peelYes" type="button">Remove</button>
+      <button id="peelNo" type="button">Cancel</button>
+    </div>
+  </div>
   <script src="https://unpkg.co/gsap@3/dist/gsap.min.js"></script>
   <script src="script.js"></script>
 </body>

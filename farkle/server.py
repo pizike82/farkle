@@ -42,6 +42,12 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/stats":
             self._send_json(game.stats.snapshot())
             return
+        if path == "/api/store":
+            self._send_json(game.store())
+            return
+        if path == "/api/decorations":
+            self._send_json(game.decorations())
+            return
         super().do_GET()
 
     def do_POST(self):
@@ -64,6 +70,12 @@ class Handler(SimpleHTTPRequestHandler):
                 payload = game.pause()
             elif path == "/api/arrange":
                 payload = game.arrange()
+            elif path == "/api/buy":
+                payload = game.buy(str(body.get("id", "")))
+            elif path == "/api/sticker/place":
+                payload = game.place_sticker(body)
+            elif path == "/api/sticker/remove":
+                payload = game.remove_sticker(str(body.get("id", "")))
             else:
                 self._send_json({"error": "not found"}, 404)
                 return

@@ -36,6 +36,28 @@ const confirmYes = document.getElementById("confirmYes");
 const confirmNo = document.getElementById("confirmNo");
 const menuBtn = document.getElementById("menuBtn");
 const menuDrop = document.getElementById("menuDrop");
+const playArea = document.getElementById("playArea");
+const storeBtn = document.getElementById("storeBtn");
+const decorBtn = document.getElementById("decorBtn");
+const storePanel = document.getElementById("storePanel");
+const decorPanel = document.getElementById("decorPanel");
+const storeGrid = document.getElementById("storeGrid");
+const decorGrid = document.getElementById("decorGrid");
+const storeWallet = document.getElementById("storeWallet");
+const storeMsg = document.getElementById("storeMsg");
+const storeBack = document.getElementById("storeBack");
+const decorBack = document.getElementById("decorBack");
+const decorEmpty = document.getElementById("decorEmpty");
+const stickerBoard = document.getElementById("stickerBoard");
+const placeOverlay = document.getElementById("placeOverlay");
+const placeItem = document.getElementById("placeItem");
+const placeImg = document.getElementById("placeImg");
+const placeRing = document.getElementById("placeRing");
+const placeScale = document.getElementById("placeScale");
+const placeOk = document.getElementById("placeOk");
+const peelConfirm = document.getElementById("peelConfirm");
+const peelYes = document.getElementById("peelYes");
+const peelNo = document.getElementById("peelNo");
 
 const template = tray.querySelector(".die");
 for (let i = 1; i < 6; i++) tray.append(template.cloneNode(true));
@@ -200,6 +222,13 @@ function sparkDice(hot, dice, kind) {
     if (!hit) return;
     restartAnim(el, hot ? "juice-hot-spark" : "juice-spark");
   });
+}
+
+function fmtNum(n) {
+  if (n == null || n === "—") return n;
+  const num = Number(n);
+  if (!Number.isFinite(num)) return n;
+  return num.toLocaleString("en-US");
 }
 
 function fmtMs(ms) {
@@ -373,11 +402,11 @@ function applyState(state) {
   const totalUp = primed && state.total > lastTotal;
   const turnUp = primed && state.turn > lastTurn;
   const selectedUp = primed && state.selected > lastSelected;
-  totalEl.textContent = state.total;
-  turnEl.textContent = state.turn;
-  selectedEl.textContent = state.selected;
-  roundEl.textContent = state.round;
-  targetEl.textContent = state.target;
+  totalEl.textContent = fmtNum(state.total);
+  turnEl.textContent = fmtNum(state.turn);
+  selectedEl.textContent = fmtNum(state.selected);
+  roundEl.textContent = fmtNum(state.round);
+  targetEl.textContent = fmtNum(state.target);
   msgEl.textContent = state.paused ? "Paused." : state.message;
   const over = state.phase === "won" || state.phase === "abandoned";
   const paused = !!state.paused;
@@ -389,7 +418,7 @@ function applyState(state) {
   abandonBtn.disabled = busy || over || !state.can_abandon;
   newBtn.disabled = busy || !over;
   if (over) confirmEl.hidden = true;
-  nerveEl.textContent = state.nerve ?? 1000;
+  nerveEl.textContent = fmtNum(state.nerve ?? 1000);
   clockBase = state.elapsed_ms || 0;
   clockAt = Date.now();
   lastPaused = paused;
@@ -399,6 +428,7 @@ function applyState(state) {
   lastFaces = state.dice.map((die) => die.value);
   lastRound = state.round;
   if (!statsPanel.hidden) refreshStats();
+  paintStickers(state.stickers);
   state.dice.forEach((die, i) => {
     const el = dieEls[i];
     el.classList.toggle("selected", die.selected);
@@ -629,7 +659,7 @@ function faceCells(facePct) {
     .map((f) => {
       const row = facePct[String(f)] || { count: 0, pct: 0 };
       const pos = `0px -${(f - 1) * 22}px`;
-      return `<div class="face-cell"><span class="mini-die" style="background-position:${pos}"></span>${row.count} · ${row.pct}%</div>`;
+      return `<div class="face-cell"><span class="mini-die" style="background-position:${pos}"></span>${fmtNum(row.count)} · ${row.pct}%</div>`;
     })
     .join("");
 }
@@ -642,76 +672,77 @@ function renderStats(data) {
   const last = L.last_blunder;
   const worst = L.worst_blunder;
   statsPanel.innerHTML = [
-    `<header class="stats-hero"><span class="stats-hero-label">Nerve</span><span class="stats-hero-value">${L.nerve ?? 1000}</span></header>`,
+    `<header class="stats-hero"><span class="stats-hero-label">Nerve</span><span class="stats-hero-value">${fmtNum(L.nerve ?? 1000)}</span></header>`,
     section(
       "This game",
       [
         row("Time", fmtMs(G.elapsed_ms)),
-        row("Rounds", G.rounds),
-        row("Farkles", `${G.farkles} · lost ${G.points_farkled}`),
-        row("Banked", G.points_banked),
-        row("Hot dice", G.hot_dice || 0),
-        row("Blunders", `${G.blunders || 0} · ${G.blunder_points || 0} pts`),
-        row("Blunder busts", G.blunder_busts || 0),
+        row("Rounds", fmtNum(G.rounds)),
+        row("Farkles", `${fmtNum(G.farkles)} · lost ${fmtNum(G.points_farkled)}`),
+        row("Banked", fmtNum(G.points_banked)),
+        row("Hot dice", fmtNum(G.hot_dice || 0)),
+        row("Blunders", `${fmtNum(G.blunders || 0)} · ${fmtNum(G.blunder_points || 0)} pts`),
+        row("Blunder busts", fmtNum(G.blunder_busts || 0)),
       ].join("")
     ),
     `<section class="stats-section hot-stats"><h3>Hot dice</h3><div class="stats-rows">${[
-      row("This game", G.hot_dice || 0),
-      row("Lifetime", L.hot_dice || 0),
-      row("All six", `${G.hot_dice_six || 0} game · ${L.hot_dice_six || 0} life`),
-      row("Streak", `${G.hot_streak || 0} now / ${L.best_hot_streak || 0} best`),
+      row("This game", fmtNum(G.hot_dice || 0)),
+      row("Lifetime", fmtNum(L.hot_dice || 0)),
+      row("All six", `${fmtNum(G.hot_dice_six || 0)} game · ${fmtNum(L.hot_dice_six || 0)} life`),
+      row("Streak", `${fmtNum(G.hot_streak || 0)} now / ${fmtNum(L.best_hot_streak || 0)} best`),
       row("First time", L.hot_dice ? "Yes" : "Not yet"),
     ].join("")}</div></section>`,
     section(
       "Rating",
       [
-        row("Nerve", L.nerve ?? 1000),
-        row("Games rated", L.games_rated || 0),
-        row("Wins / abandons", `${L.games_won} / ${L.abandons || 0}`),
+        row("Nerve", fmtNum(L.nerve ?? 1000)),
+        row("Games rated", fmtNum(L.games_rated || 0)),
+        row("Wins / abandons", `${fmtNum(L.games_won)} / ${fmtNum(L.abandons || 0)}`),
       ].join("")
     ),
     section(
       "Streaks",
       [
-        row("No-bust", `${G.no_bust_streak} now / ${L.best_no_bust_streak} best`),
-        row("Bust", `${G.bust_streak} now / ${L.longest_bust_streak} longest`),
-        row("On fire", `${G.on_fire_streak} now / ${L.best_on_fire_streak} best`),
+        row("No-bust", `${fmtNum(G.no_bust_streak)} now / ${fmtNum(L.best_no_bust_streak)} best`),
+        row("Bust", `${fmtNum(G.bust_streak)} now / ${fmtNum(L.longest_bust_streak)} longest`),
+        row("On fire", `${fmtNum(G.on_fire_streak)} now / ${fmtNum(L.best_on_fire_streak)} best`),
       ].join("")
     ),
     section(
       "Lifetime",
       [
-        row("Games", `${L.games_started} started · ${L.games_won} won`),
-        row("Abandons", L.abandons || 0),
+        row("Current Wallet", fmtNum(L.wallet ?? L.points_banked)),
+        row("All Time Banked", fmtNum(L.points_banked)),
+        row("Games", `${fmtNum(L.games_started)} started · ${fmtNum(L.games_won)} won`),
+        row("Abandons", fmtNum(L.abandons || 0)),
         row("Fewest rounds", L.fewest_rounds_to_win ?? "—"),
-        row("Banked", L.points_banked),
-        row("Lost to bust", `${L.points_farkled} · biggest ${L.biggest_bust}`),
-        row("Avg / round", `${L.avg_per_round} · best ${L.best_round_score}`),
+        row("Lost to bust", `${fmtNum(L.points_farkled)} · biggest ${fmtNum(L.biggest_bust)}`),
+        row("Avg / round", `${fmtNum(L.avg_per_round)} · best ${fmtNum(L.best_round_score)}`),
         row("Efficiency", `${L.efficiency}%`),
         row("Farkle rate", `${L.farkle_rate}%`),
-        row("Push your luck", L.push_your_luck),
+        row("Push your luck", fmtNum(L.push_your_luck)),
         row("Leftover dice", L.avg_remaining_dice),
-        row("First-roll / 6-die farkles", `${L.first_roll_farkles} / ${L.six_die_farkles}`),
-        row("Rolls / banks", `${L.rolls} / ${L.banks}`),
-        row("Exact 10k", `${L.exact_10000_wins} · overshoot ${L.last_overshoot}`),
+        row("First-roll / 6-die farkles", `${fmtNum(L.first_roll_farkles)} / ${fmtNum(L.six_die_farkles)}`),
+        row("Rolls / banks", `${fmtNum(L.rolls)} / ${fmtNum(L.banks)}`),
+        row("Exact 10k", `${fmtNum(L.exact_10000_wins)} · overshoot ${fmtNum(L.last_overshoot)}`),
       ].join("")
     ),
     `<section class="stats-section"><h3>Dice</h3><div class="face-grid">${faceCells(L.face_pct)}</div></section>`,
     section(
       "Combos",
       [
-        row("Best combo", best && best.label ? `${best.label} (${best.score})` : "—"),
-        row("Most common", common ? `${common.label} ×${common.count}` : "—"),
+        row("Best combo", best && best.label ? `${best.label} (${fmtNum(best.score)})` : "—"),
+        row("Most common", common ? `${common.label} ×${fmtNum(common.count)}` : "—"),
       ].join("")
     ),
     section(
       "Blunders",
       [
-        row("Count", `${L.blunders || 0} · ${L.blunder_rate || 0}%`),
-        row("Points left", L.blunder_points || 0),
-        row("Blunder busts", L.blunder_busts || 0),
-        row("Last", last && last.label ? `${last.label} (${last.cost})` : "—"),
-        row("Worst", worst && worst.label ? `${worst.label} (${worst.cost})` : "—"),
+        row("Count", `${fmtNum(L.blunders || 0)} · ${L.blunder_rate || 0}%`),
+        row("Points left", fmtNum(L.blunder_points || 0)),
+        row("Blunder busts", fmtNum(L.blunder_busts || 0)),
+        row("Last", last && last.label ? `${last.label} (${fmtNum(last.cost)})` : "—"),
+        row("Worst", worst && worst.label ? `${worst.label} (${fmtNum(worst.cost)})` : "—"),
       ].join("")
     ),
     section(
@@ -733,9 +764,393 @@ async function refreshStats() {
   }
 }
 
+function showView(name) {
+  playArea.hidden = name !== "play";
+  storePanel.hidden = name !== "store";
+  decorPanel.hidden = name !== "decor";
+  if (name !== "play") {
+    statsPanel.hidden = true;
+    statsBtn.textContent = "Stats";
+    confirmEl.hidden = true;
+  }
+}
+
+function renderStore(data) {
+  storeWallet.textContent = fmtNum(data.wallet || 0);
+  storeGrid.innerHTML = (data.items || [])
+    .map((item) => {
+      const label = item.owned ? "Owned" : "Buy";
+      const disabled = item.owned || !item.affordable ? "disabled" : "";
+      return `<article class="shop-tile" data-id="${item.id}">
+        <span class="shop-kind">Sticker</span>
+        <div class="shop-art"><img src="${item.image}" alt="${item.name}" /></div>
+        <h3>${item.name}</h3>
+        <p class="shop-price">${fmtNum(item.price)}</p>
+        <button type="button" class="shop-buy" data-id="${item.id}" ${disabled}>${label}</button>
+      </article>`;
+    })
+    .join("");
+}
+
+async function refreshStore() {
+  storeMsg.hidden = true;
+  try {
+    renderStore(await api("/api/store"));
+  } catch (err) {
+    storeMsg.hidden = false;
+    storeMsg.textContent = err.message;
+  }
+}
+
+const STICKER_MIN_SCALE = 0.55;
+const STICKER_MAX_SIDE = 240;
+
+let decorItems = [];
+let placing = null;
+let peelId = "";
+let ringTimer = 0;
+
+function stickerBox(natW, natH, scale) {
+  const long = Math.max(natW, natH) || 1;
+  const maxLong = Math.min(long, STICKER_MAX_SIDE);
+  const k = (maxLong / long) * scale;
+  return { w: Math.max(32, Math.round(natW * k)), h: Math.max(32, Math.round(natH * k)) };
+}
+
+function paintStickers(items) {
+  if (placing) return;
+  stickerBoard.replaceChildren();
+  (items || []).forEach((item) => {
+    const img = document.createElement("img");
+    img.className = "board-sticker";
+    img.alt = "";
+    img.draggable = false;
+    img.dataset.id = item.id;
+    img.src = item.image;
+    const rot = Number(item.rotation) || 0;
+    img.style.left = `${(Number(item.x) || 0.5) * 100}%`;
+    img.style.top = `${(Number(item.y) || 0.5) * 100}%`;
+    img.style.zIndex = String(Number(item.z) || 0);
+    img.style.transform = `translate(-50%, -50%) rotate(${rot}deg)`;
+    img.onload = () => {
+      const box = stickerBox(img.naturalWidth, img.naturalHeight, Number(item.scale) || 1);
+      img.style.width = `${box.w}px`;
+      img.style.height = "auto";
+    };
+    stickerBoard.append(img);
+  });
+}
+
+function layoutPlacement() {
+  if (!placing) return;
+  const box = stickerBox(placing.natW, placing.natH, placing.scale);
+  const ring = Math.max(box.w, box.h) * 1.22 + 18;
+  placeItem.style.left = `${placing.x}px`;
+  placeItem.style.top = `${placing.y}px`;
+  placeImg.style.setProperty("--sticker-w", `${box.w}px`);
+  placeImg.style.setProperty("--sticker-rot", `${placing.rotation}deg`);
+  placeRing.style.setProperty("--ring", `${ring}px`);
+  layoutBoardPreview(box);
+}
+
+function layoutBoardPreview(box) {
+  if (!placing) return;
+  let preview = document.getElementById("placePreview");
+  if (!preview) {
+    preview = document.createElement("img");
+    preview.id = "placePreview";
+    preview.className = "board-sticker";
+    preview.alt = "";
+    preview.draggable = false;
+    stickerBoard.append(preview);
+  }
+  preview.src = placing.image;
+  preview.style.left = `${(placing.x / window.innerWidth) * 100}%`;
+  preview.style.top = `${(placing.y / window.innerHeight) * 100}%`;
+  preview.style.width = `${box.w}px`;
+  preview.style.height = "auto";
+  preview.style.zIndex = "999";
+  preview.style.transform = `translate(-50%, -50%) rotate(${placing.rotation}deg)`;
+}
+
+function showRotateRing() {
+  placeRing.hidden = false;
+  clearTimeout(ringTimer);
+  ringTimer = setTimeout(() => {
+    placeRing.hidden = true;
+  }, 420);
+}
+
+function endPlacement() {
+  placing = null;
+  placeOverlay.hidden = true;
+  document.body.classList.remove("is-placing");
+  placeOverlay.classList.remove("is-dragging");
+  placeRing.hidden = true;
+  document.getElementById("placePreview")?.remove();
+  stickerBoard.querySelectorAll(".board-sticker").forEach((el) => {
+    el.hidden = false;
+  });
+}
+
+function beginPlacement(item, clientX, clientY) {
+  showView("play");
+  peelConfirm.hidden = true;
+  placing = {
+    id: item.id,
+    image: item.image,
+    name: item.name,
+    x: clientX,
+    y: clientY,
+    scale: item.placed ? Number(item.scale) || 1 : 1,
+    rotation: item.placed ? Number(item.rotation) || 0 : 0,
+    natW: 240,
+    natH: 240,
+  };
+  document.body.classList.add("is-placing");
+  placeOverlay.hidden = false;
+  placeImg.src = item.image;
+  placeImg.alt = item.name;
+  const pic = new Image();
+  pic.onload = () => {
+    if (!placing || placing.id !== item.id) return;
+    placing.natW = pic.naturalWidth || 240;
+    placing.natH = pic.naturalHeight || 240;
+    layoutPlacement();
+  };
+  pic.src = item.image;
+  layoutPlacement();
+  stickerBoard.querySelectorAll(".board-sticker").forEach((el) => {
+    el.hidden = el.dataset.id === item.id;
+  });
+}
+
+function grabDecorSticker(ev, item) {
+  ev.preventDefault();
+  const startX = ev.clientX;
+  const startY = ev.clientY;
+  let live = false;
+  const onMove = (moveEv) => {
+    if (!live && Math.hypot(moveEv.clientX - startX, moveEv.clientY - startY) > 7) {
+      live = true;
+      beginPlacement(item, moveEv.clientX, moveEv.clientY);
+    } else if (live && placing) {
+      placing.x = moveEv.clientX;
+      placing.y = moveEv.clientY;
+      layoutPlacement();
+    }
+  };
+  const onUp = () => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    if (!live) beginPlacement(item, window.innerWidth / 2, window.innerHeight / 2);
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+}
+
+function renderDecor(data) {
+  const items = data.items || [];
+  decorItems = items;
+  paintStickers(data.stickers);
+  decorEmpty.hidden = items.length > 0;
+  decorGrid.innerHTML = items
+    .map((item) => {
+      const actions = [
+        item.can_edit ? `<button type="button" class="shop-edit" data-id="${item.id}">Edit</button>` : "",
+        item.can_remove ? `<button type="button" class="shop-remove" data-id="${item.id}">Remove</button>` : "",
+      ].join("");
+      const hint = item.can_place
+        ? `<p class="shop-hint">Click or drag to place</p>`
+        : item.can_edit
+          ? `<p class="shop-hint">Placed</p>`
+          : `<p class="shop-hint">Worn — peel to remove</p>`;
+      return `<article class="shop-tile${item.can_place ? " is-placeable" : ""}" data-id="${item.id}">
+        <span class="shop-kind">Sticker</span>
+        <div class="shop-art"><img src="${item.image}" alt="${item.name}" draggable="false" /></div>
+        <h3>${item.name}</h3>
+        <p class="shop-wear">${item.wear_label}</p>
+        ${hint}
+        ${actions ? `<div class="shop-actions">${actions}</div>` : ""}
+      </article>`;
+    })
+    .join("");
+}
+
+async function refreshDecor() {
+  try {
+    renderDecor(await api("/api/decorations"));
+  } catch {
+    decorEmpty.hidden = false;
+    decorEmpty.textContent = "Could not load decorations.";
+    decorGrid.innerHTML = "";
+  }
+}
+
+async function openStore() {
+  closeMenu();
+  if (!storePanel.hidden) {
+    showView("play");
+    return;
+  }
+  showView("store");
+  await refreshStore();
+}
+
+async function openDecor() {
+  closeMenu();
+  if (!decorPanel.hidden) {
+    showView("play");
+    return;
+  }
+  showView("decor");
+  await refreshDecor();
+}
+
+storeBtn.addEventListener("click", openStore);
+decorBtn.addEventListener("click", openDecor);
+storeBack.addEventListener("click", () => showView("play"));
+decorBack.addEventListener("click", () => showView("play"));
+
+decorGrid.addEventListener("pointerdown", (ev) => {
+  if (ev.target.closest("button")) return;
+  const tile = ev.target.closest(".shop-tile");
+  if (!tile) return;
+  const item = decorItems.find((row) => row.id === tile.dataset.id);
+  if (!item || !item.can_place) return;
+  grabDecorSticker(ev, item);
+});
+
+decorGrid.addEventListener("click", (ev) => {
+  const edit = ev.target.closest(".shop-edit");
+  if (edit) {
+    const item = decorItems.find((row) => row.id === edit.dataset.id);
+    if (!item || !item.can_edit) return;
+    const x = (Number(item.x) || 0.5) * window.innerWidth;
+    const y = (Number(item.y) || 0.5) * window.innerHeight;
+    beginPlacement(item, x, y);
+    return;
+  }
+  const peel = ev.target.closest(".shop-remove");
+  if (peel) {
+    peelId = peel.dataset.id;
+    peelConfirm.hidden = false;
+  }
+});
+
+peelNo.addEventListener("click", () => {
+  peelConfirm.hidden = true;
+  peelId = "";
+});
+
+peelYes.addEventListener("click", async () => {
+  const id = peelId;
+  peelConfirm.hidden = true;
+  peelId = "";
+  if (!id) return;
+  try {
+    const data = await api("/api/sticker/remove", { id });
+    renderDecor(data);
+  } catch (err) {
+    decorEmpty.hidden = false;
+    decorEmpty.textContent = err.message;
+  }
+});
+
+placeImg.addEventListener("pointerdown", (ev) => {
+  if (!placing || ev.button) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  placeOverlay.classList.add("is-dragging");
+  const dx = ev.clientX - placing.x;
+  const dy = ev.clientY - placing.y;
+  const onMove = (moveEv) => {
+    placing.x = moveEv.clientX - dx;
+    placing.y = moveEv.clientY - dy;
+    layoutPlacement();
+  };
+  const onUp = () => {
+    placeOverlay.classList.remove("is-dragging");
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+});
+
+placeScale.addEventListener("pointerdown", (ev) => {
+  if (!placing) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  const startDist = Math.hypot(ev.clientX - placing.x, ev.clientY - placing.y) || 1;
+  const startScale = placing.scale;
+  const onMove = (moveEv) => {
+    const dist = Math.hypot(moveEv.clientX - placing.x, moveEv.clientY - placing.y);
+    placing.scale = Math.min(1, Math.max(STICKER_MIN_SCALE, startScale * (dist / startDist)));
+    layoutPlacement();
+  };
+  const onUp = () => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+});
+
+placeOverlay.addEventListener(
+  "wheel",
+  (ev) => {
+    if (!placing) return;
+    ev.preventDefault();
+    placing.rotation = (placing.rotation + ev.deltaY * 0.18) % 360;
+    if (placing.rotation < 0) placing.rotation += 360;
+    layoutPlacement();
+    showRotateRing();
+  },
+  { passive: false }
+);
+
+placeOk.addEventListener("click", async (ev) => {
+  ev.stopPropagation();
+  if (!placing) return;
+  const payload = {
+    id: placing.id,
+    x: placing.x / window.innerWidth,
+    y: placing.y / window.innerHeight,
+    scale: placing.scale,
+    rotation: placing.rotation,
+  };
+  try {
+    const data = await api("/api/sticker/place", payload);
+    endPlacement();
+    paintStickers(data.stickers);
+  } catch (err) {
+    endPlacement();
+    showView("decor");
+    decorEmpty.hidden = false;
+    decorEmpty.textContent = err.message;
+  }
+});
+
+storeGrid.addEventListener("click", async (ev) => {
+  const btn = ev.target.closest(".shop-buy");
+  if (!btn || btn.disabled) return;
+  btn.disabled = true;
+  storeMsg.hidden = true;
+  try {
+    renderStore(await api("/api/buy", { id: btn.dataset.id }));
+  } catch (err) {
+    storeMsg.hidden = false;
+    storeMsg.textContent = err.message;
+    btn.disabled = false;
+  }
+});
+
 statsBtn.addEventListener("click", async () => {
   closeMenu();
-  statsPanel.hidden = !statsPanel.hidden;
+  const opening = statsPanel.hidden;
+  showView("play");
+  statsPanel.hidden = !opening;
   statsBtn.textContent = statsPanel.hidden ? "Stats" : "Hide stats";
   if (!statsPanel.hidden) await refreshStats();
 });
@@ -764,7 +1179,14 @@ document.addEventListener("click", (ev) => {
 });
 
 document.addEventListener("keydown", (ev) => {
-  if (ev.key === "Escape") closeMenu();
+  if (ev.key !== "Escape") return;
+  closeMenu();
+  if (placing) {
+    endPlacement();
+    return;
+  }
+  peelConfirm.hidden = true;
+  if (!storePanel.hidden || !decorPanel.hidden) showView("play");
 });
 
 async function pauseClock() {

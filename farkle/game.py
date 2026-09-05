@@ -234,6 +234,27 @@ class Farkle:
         self.stats.toggle_pause()
         return self.state()
 
+    def store(self) -> dict:
+        return self.stats.store_snapshot()
+
+    def decorations(self) -> dict:
+        return self.stats.decorations_snapshot()
+
+    def buy(self, item_id: str) -> dict:
+        return self.stats.buy(str(item_id or "").strip())
+
+    def place_sticker(self, payload: dict) -> dict:
+        return self.stats.place_sticker(
+            str(payload.get("id") or "").strip(),
+            payload.get("x"),
+            payload.get("y"),
+            payload.get("scale"),
+            payload.get("rotation"),
+        )
+
+    def remove_sticker(self, item_id: str) -> dict:
+        return self.stats.remove_sticker(str(item_id or "").strip())
+
     def reset_turn(self, message: str) -> None:
         self.dice = [
             {"value": 1, "locked": False, "selected": False, "live": False}
@@ -291,6 +312,8 @@ class Farkle:
             "clock_running": self.stats.clock_running(),
             "paused": bool(self.stats.game.get("paused")),
             "nerve": self.stats.lifetime.get("nerve", 1000),
+            "wallet": int(self.stats.lifetime.get("wallet") or 0),
+            "stickers": self.stats.placed_stickers(),
             "can_abandon": bool(self._session_counted and self.phase not in ("won", "abandoned")),
             "can_arrange": self.phase == "choose",
             "can_pause": self.phase not in ("won", "abandoned"),

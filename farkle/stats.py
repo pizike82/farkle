@@ -6,6 +6,8 @@ import json
 import time
 from pathlib import Path
 
+from .store import CATALOG, CATALOG_BY_ID, item_image, wear_for_games
+
 ROOT = Path(__file__).resolve().parent.parent
 STATS_PATH = ROOT / "data" / "stats.json"
 IDLE_LIMIT_MS = 3 * 60 * 1000
@@ -58,6 +60,7 @@ def empty_lifetime() -> dict:
         "push_your_luck": 0,
         "conservative_banks": 0,
         "points_banked": 0,
+        "wallet": 0,
         "points_farkled": 0,
         "biggest_bust": 0,
         "highest_turn_banked": 0,
@@ -87,6 +90,7 @@ def empty_lifetime() -> dict:
         "worst_blunder": {"label": None, "cost": 0, "kind": None},
         "nerve": 1000,
         "games_rated": 0,
+        "decorations": [],
     }
 
 
@@ -149,6 +153,8 @@ class Stats:
             life["worst_blunder"] = {"label": None, "cost": 0, "kind": None}
         if life.get("nerve") is None:
             life["nerve"] = 1000
+        if not isinstance(life.get("decorations"), list):
+            life["decorations"] = []
         best = life.get("fastest_win_ms")
         if best is not None and int(best) > IMPOSSIBLE_WIN_MS:
             life["fastest_win_ms"] = None
@@ -157,6 +163,7 @@ class Stats:
         game.update(raw.get("game") or {})
         self.game = game
         self._migrate_elapsed()
+        self._migrate_wallet(raw)
         self._resume_clock()
 
     def save(self) -> None:
@@ -197,6 +204,15 @@ class Stats:
     def _migrate_elapsed(self) -> None:
         """Never derive elapsed from now/mtime − started_at (that counts downtime)."""
         self.game["elapsed_ms"] = max(0, int(self.game.get("elapsed_ms") or 0))
+
+    def _migrate_wallet(self, raw: dict) -> None:
+        """Spendable store currency. Existing profiles start equal to all-time banked."""
+        saved = raw.get("lifetime") or {}
+        if "wallet" in saved:
+            self.lifetime["wallet"] = max(0, int(self.lifetime.get("wallet") or 0))
+            return
+        self.lifetime["wallet"] = max(0, int(self.lifetime.get("points_banked") or 0))
+        self.save()
 
     def _resume_clock(self) -> None:
         self._running_since = None
@@ -470,6 +486,7 @@ class Stats:
         L["banks"] += 1
         G["banks"] += 1
         L["points_banked"] += banked
+        L["wallet"] = int(L.get("wallet") or 0) + banked
         G["points_banked"] += banked
         if banked > L["highest_turn_banked"]:
             L["highest_turn_banked"] = banked
@@ -506,6 +523,7 @@ class Stats:
         else:
             L["overshoot_total"] += overshoot
         self.apply_nerve(won=True)
+        self.tick_decorations()
         self.save()
 
     def record_abandon(self, _total: int, _rounds: int) -> None:
@@ -513,7 +531,163 @@ class Stats:
         self.lifetime["abandons"] += 1
         self.game["abandoned"] = True
         self.apply_nerve(won=False, abandoned=True)
+        self.tick_decorations()
         self.save()
+
+    def tick_decorations(self) -> None:
+        for item in self.lifetime.get("decorations") or []:
+            if isinstance(item, dict):
+                item["games"] = int(item.get("games") or 0) + 1
+
+    def _owned_ids(self) -> set[str]:
+        return {
+            str(item.get("id"))
+            for item in self.lifetime.get("decorations") or []
+            if isinstance(item, dict) and item.get("id")
+        }
+
+    def store_snapshot(self) -> dict:
+        wallet = int(self.lifetime.get("wallet") or 0)
+        owned = self._owned_ids()
+        items = []
+        for spec in CATALOG:
+            items.append(
+                {
+                    "id": spec["id"],
+                    "name": spec["name"],
+                    "kind": spec["kind"],
+                    "price": spec["price"],
+                    "image": item_image(spec),
+                    "owned": spec["id"] in owned,
+                    "affordable": wallet >= spec["price"],
+                }
+            )
+        return {"wallet": wallet, "items": items}
+
+    def decorations_snapshot(self) -> dict:
+        items = []
+        for owned in self.lifetime.get("decorations") or []:
+            if not isinstance(owned, dict):
+                continue
+            spec = CATALOG_BY_ID.get(owned.get("id"))
+            if not spec:
+                continue
+            games = int(owned.get("games") or 0)
+            wear = wear_for_games(games)
+            placed = bool(owned.get("placed"))
+            items.append(
+                {
+                    "id": spec["id"],
+                    "name": spec["name"],
+                    "kind": spec["kind"],
+                    "games": games,
+                    "wear": wear["key"],
+                    "wear_label": wear["label"],
+                    "image": item_image(spec, wear_file=wear["file"]),
+                    "placed": placed,
+                    "x": float(owned.get("x") or 0.5),
+                    "y": float(owned.get("y") or 0.5),
+                    "scale": float(owned.get("scale") or 1),
+                    "rotation": float(owned.get("rotation") or 0),
+                    "can_place": not placed,
+                    "can_edit": placed and wear["key"] == "pristine",
+                    "can_remove": wear["key"] != "pristine",
+                }
+            )
+        return {"items": items, "stickers": self.placed_stickers()}
+
+    def _owned_item(self, item_id: str) -> dict | None:
+        for item in self.lifetime.get("decorations") or []:
+            if isinstance(item, dict) and item.get("id") == item_id:
+                return item
+        return None
+
+    def placed_stickers(self) -> list[dict]:
+        out = []
+        for owned in self.lifetime.get("decorations") or []:
+            if not isinstance(owned, dict) or not owned.get("placed"):
+                continue
+            spec = CATALOG_BY_ID.get(owned.get("id"))
+            if not spec:
+                continue
+            games = int(owned.get("games") or 0)
+            wear = wear_for_games(games)
+            out.append(
+                {
+                    "id": spec["id"],
+                    "name": spec["name"],
+                    "image": item_image(spec, wear_file=wear["file"]),
+                    "x": float(owned.get("x") or 0.5),
+                    "y": float(owned.get("y") or 0.5),
+                    "scale": float(owned.get("scale") or 1),
+                    "rotation": float(owned.get("rotation") or 0),
+                    "z": int(owned.get("z") or 0),
+                }
+            )
+        out.sort(key=lambda row: row["z"])
+        return out
+
+    def buy(self, item_id: str) -> dict:
+        spec = CATALOG_BY_ID.get(item_id)
+        if not spec:
+            raise ValueError("That item is not for sale.")
+        if spec["id"] in self._owned_ids():
+            raise ValueError("Already owned.")
+        wallet = int(self.lifetime.get("wallet") or 0)
+        price = int(spec["price"])
+        if wallet < price:
+            raise ValueError("Not enough in your wallet.")
+        self.lifetime["wallet"] = wallet - price
+        bag = self.lifetime.setdefault("decorations", [])
+        bag.append(
+            {
+                "id": spec["id"],
+                "kind": spec["kind"],
+                "games": 0,
+                "bought_at_ms": now_ms(),
+            }
+        )
+        self.save()
+        return self.store_snapshot()
+
+    def place_sticker(
+        self,
+        item_id: str,
+        x: object,
+        y: object,
+        scale: object,
+        rotation: object,
+    ) -> dict:
+        item = self._owned_item(item_id)
+        if not item:
+            raise ValueError("You do not own that sticker.")
+        wear = wear_for_games(item.get("games"))
+        if item.get("placed") and wear["key"] != "pristine":
+            raise ValueError("Worn stickers cannot be moved.")
+        item["placed"] = True
+        item["x"] = min(1.0, max(0.0, float(x)))
+        item["y"] = min(1.0, max(0.0, float(y)))
+        item["scale"] = min(1.0, max(0.55, float(scale)))
+        item["rotation"] = float(rotation) % 360.0
+        zmax = 0
+        for other in self.lifetime.get("decorations") or []:
+            if isinstance(other, dict):
+                zmax = max(zmax, int(other.get("z") or 0))
+        item["z"] = zmax + 1
+        self.save()
+        return self.decorations_snapshot()
+
+    def remove_sticker(self, item_id: str) -> dict:
+        bag = self.lifetime.setdefault("decorations", [])
+        item = self._owned_item(item_id)
+        if not item:
+            raise ValueError("You do not own that sticker.")
+        wear = wear_for_games(item.get("games"))
+        if wear["key"] == "pristine":
+            raise ValueError("Pristine stickers can be edited, not peeled.")
+        bag.remove(item)
+        self.save()
+        return self.decorations_snapshot()
 
     def snapshot(self) -> dict:
         L = self.lifetime
