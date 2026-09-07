@@ -12,7 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from farkle.stats import Stats
-from farkle.store import wear_for_games
+from farkle.store import CATALOG, CATALOG_BY_ID, RESIDUE_FILES, residue_rotation, residue_scale, wear_for_games
 
 
 def test_wear_steps() -> None:
@@ -73,7 +73,50 @@ def test_place_and_remove_worn() -> None:
         pass
     gone = st.remove_sticker("fark_around")
     assert gone["items"] == []
+    marks = [row for row in gone["stickers"] if row.get("kind") == "residue"]
+    assert len(marks) == 1
+    assert marks[0]["scale"] < 0.8
+    assert "sticker_residue/large/large_residue.png" in marks[0]["image"].replace("\\", "/")
+    assert abs(marks[0]["x"] - 0.4) < 1e-9
+    assert abs(marks[0]["rotation"] - 135) < 1e-9
     assert st.store_snapshot()["items"][0]["owned"] is False
+    leftover = st.remove_residue(marks[0]["id"])
+    assert leftover["stickers"] == []
+
+
+def test_residue_never_sold() -> None:
+    path = Path(tempfile.mkdtemp()) / "stats.json"
+    path.write_text(json.dumps({"lifetime": {"wallet": 999999}, "game": {}}), encoding="utf-8")
+    st = Stats(path)
+    shop = st.store_snapshot()["items"]
+    assert all(row["kind"] == "sticker" for row in shop)
+    assert all("sticker_residue" not in row["image"] for row in shop)
+    assert {row["id"] for row in shop} == {spec["id"] for spec in CATALOG}
+    for spec in CATALOG:
+        assert spec["residue"] in RESIDUE_FILES
+        assert (ROOT / "web" / RESIDUE_FILES[spec["residue"]]).is_file()
+    try:
+        st.buy("large_residue")
+        raise AssertionError("sold residue")
+    except ValueError as err:
+        assert "not for sale" in str(err).lower()
+    for scale in (0.55, 0.8, 1.0):
+        assert residue_scale(scale) < scale
+    assert residue_rotation(0, CATALOG_BY_ID["fark_around"]) == 90
+    assert residue_rotation(45, CATALOG_BY_ID["fark_around"]) == 135
+    assert residue_rotation(0, CATALOG_BY_ID["one_more_role"]) == 0
+    assert residue_rotation(0, CATALOG_BY_ID["roll_responsibly"]) == 0
+    assert residue_rotation(0, CATALOG_BY_ID["124_die"]) == 0
+
+
+def test_remove_pristine() -> None:
+    path = Path(tempfile.mkdtemp()) / "stats.json"
+    path.write_text(json.dumps({"lifetime": {"wallet": 20000}, "game": {}}), encoding="utf-8")
+    st = Stats(path)
+    st.buy("roll_responsibly")
+    st.remove_sticker("roll_responsibly")
+    assert st.lifetime["decorations"] == []
+    assert st.lifetime.get("residues") == []
 
 
 if __name__ == "__main__":
@@ -81,4 +124,6 @@ if __name__ == "__main__":
     test_buy_moves_wallet_into_decorations()
     test_cannot_buy_twice_or_without_funds()
     test_place_and_remove_worn()
+    test_residue_never_sold()
+    test_remove_pristine()
     print("store tests ok")

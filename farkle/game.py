@@ -255,6 +255,9 @@ class Farkle:
     def remove_sticker(self, item_id: str) -> dict:
         return self.stats.remove_sticker(str(item_id or "").strip())
 
+    def remove_residue(self, mark_id: str) -> dict:
+        return self.stats.remove_residue(str(mark_id or "").strip())
+
     def reset_turn(self, message: str) -> None:
         self.dice = [
             {"value": 1, "locked": False, "selected": False, "live": False}

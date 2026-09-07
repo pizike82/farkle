@@ -32,11 +32,20 @@ const orderBtn = document.getElementById("order");
 const pauseBtn = document.getElementById("pause");
 const abandonBtn = document.getElementById("abandon");
 const confirmEl = document.getElementById("confirm");
+const confirmMsg = document.getElementById("confirmMsg");
 const confirmYes = document.getElementById("confirmYes");
 const confirmNo = document.getElementById("confirmNo");
 const menuBtn = document.getElementById("menuBtn");
 const menuDrop = document.getElementById("menuDrop");
 const playArea = document.getElementById("playArea");
+const homePanel = document.getElementById("homePanel");
+const tutorialPanel = document.getElementById("tutorialPanel");
+const homeBtn = document.getElementById("homeBtn");
+const homeNew = document.getElementById("homeNew");
+const homeContinue = document.getElementById("homeContinue");
+const homeContinueMeta = document.getElementById("homeContinueMeta");
+const homeTutorial = document.getElementById("homeTutorial");
+const tutorialBack = document.getElementById("tutorialBack");
 const storeBtn = document.getElementById("storeBtn");
 const decorBtn = document.getElementById("decorBtn");
 const storePanel = document.getElementById("storePanel");
@@ -47,6 +56,7 @@ const storeWallet = document.getElementById("storeWallet");
 const storeMsg = document.getElementById("storeMsg");
 const storeBack = document.getElementById("storeBack");
 const decorBack = document.getElementById("decorBack");
+const decorRemove = document.getElementById("decorRemove");
 const decorEmpty = document.getElementById("decorEmpty");
 const stickerBoard = document.getElementById("stickerBoard");
 const placeOverlay = document.getElementById("placeOverlay");
@@ -58,6 +68,8 @@ const placeOk = document.getElementById("placeOk");
 const peelConfirm = document.getElementById("peelConfirm");
 const peelYes = document.getElementById("peelYes");
 const peelNo = document.getElementById("peelNo");
+const peelHint = document.getElementById("peelHint");
+const peelCancel = document.getElementById("peelCancel");
 
 const template = tray.querySelector(".die");
 for (let i = 1; i < 6; i++) tray.append(template.cloneNode(true));
@@ -111,6 +123,10 @@ let lastPhase = "ready";
 let lastFaces = [1, 1, 1, 1, 1, 1];
 let lastRound = 0;
 let lastPaused = false;
+let lastCanContinue = false;
+let currentView = "home";
+let returnView = "home";
+let confirmAction = "abandon";
 let attracting = false;
 let restoring = false;
 let attractTl = null;
@@ -267,6 +283,7 @@ function attractSoon() {
 
 function armAttract() {
   clearTimeout(attractTimer);
+  if (currentView !== "play") return;
   if (reduceMotion) return;
   if (lastPaused) {
     startAttract();
@@ -422,6 +439,8 @@ function applyState(state) {
   clockBase = state.elapsed_ms || 0;
   clockAt = Date.now();
   lastPaused = paused;
+  lastCanContinue = !!state.can_abandon;
+  updateHomeMenu(state);
   clockRunning = !over && !paused && !!state.clock_running;
   tickClock();
   lastPhase = state.phase;
@@ -455,7 +474,7 @@ function applyState(state) {
   lastTurn = state.turn;
   lastSelected = state.selected;
   primed = true;
-  armAttract();
+  if (currentView === "play") armAttract();
 }
 
 function entropySample() {
@@ -578,8 +597,30 @@ async function newGame() {
   await wakeAttract(true);
   try {
     applyState(await api("/api/new", {}));
+    showView("play");
   } catch (err) {
     msgEl.textContent = err.message;
+  }
+}
+
+async function startFreshGame() {
+  if (busy) return;
+  await wakeAttract(true);
+  try {
+    if (lastCanContinue) await api("/api/abandon", {});
+    applyState(await api("/api/new", {}));
+    showView("play");
+  } catch (err) {
+    msgEl.textContent = err.message;
+  }
+}
+
+function updateHomeMenu(state) {
+  if (!homeContinue) return;
+  const on = !!state.can_abandon;
+  homeContinue.hidden = !on;
+  if (on && homeContinueMeta) {
+    homeContinueMeta.textContent = `${fmtNum(state.total)} pts · round ${fmtNum(state.round)}`;
   }
 }
 
@@ -765,14 +806,21 @@ async function refreshStats() {
 }
 
 function showView(name) {
+  currentView = name;
+  if (homePanel) homePanel.hidden = name !== "home";
+  if (tutorialPanel) tutorialPanel.hidden = name !== "tutorial";
   playArea.hidden = name !== "play";
   storePanel.hidden = name !== "store";
   decorPanel.hidden = name !== "decor";
+  if (homeBtn) homeBtn.hidden = name === "home" || name === "tutorial";
   if (name !== "play") {
     statsPanel.hidden = true;
     statsBtn.textContent = "Stats";
     confirmEl.hidden = true;
+    clearTimeout(attractTimer);
+    if (attracting) wakeAttract(false);
   }
+  if (name === "play") armAttract();
 }
 
 function renderStore(data) {
@@ -806,6 +854,8 @@ const STICKER_MIN_SCALE = 0.55;
 const STICKER_MAX_SIDE = 240;
 
 let decorItems = [];
+let lastStickers = [];
+let decorRemoveMode = false;
 let placing = null;
 let peelId = "";
 let ringTimer = 0;
@@ -819,13 +869,17 @@ function stickerBox(natW, natH, scale) {
 
 function paintStickers(items) {
   if (placing) return;
+  if (items) lastStickers = items;
   stickerBoard.replaceChildren();
-  (items || []).forEach((item) => {
+  (lastStickers || []).forEach((item) => {
     const img = document.createElement("img");
     img.className = "board-sticker";
+    if (item.kind === "residue") img.classList.add("is-residue");
+    else if (decorRemoveMode) img.classList.add("is-peelable");
     img.alt = "";
     img.draggable = false;
     img.dataset.id = item.id;
+    img.dataset.kind = item.kind || "sticker";
     img.src = item.image;
     const rot = Number(item.rotation) || 0;
     img.style.left = `${(Number(item.x) || 0.5) * 100}%`;
@@ -840,6 +894,27 @@ function paintStickers(items) {
     stickerBoard.append(img);
   });
 }
+
+stickerBoard.addEventListener("click", async (ev) => {
+  if (placing) return;
+  const mark = ev.target.closest(".board-sticker");
+  if (!mark || !mark.dataset.id) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  if (mark.classList.contains("is-residue")) {
+    try {
+      const data = await api("/api/residue/remove", { id: mark.dataset.id });
+      paintStickers(data.stickers);
+      if (!decorPanel.hidden) renderDecor(data);
+    } catch {
+      mark.remove();
+    }
+    return;
+  }
+  if (!decorRemoveMode) return;
+  peelId = mark.dataset.id;
+  peelConfirm.hidden = false;
+});
 
 function layoutPlacement() {
   if (!placing) return;
@@ -894,6 +969,7 @@ function endPlacement() {
 }
 
 function beginPlacement(item, clientX, clientY) {
+  endPeelMode();
   showView("play");
   peelConfirm.hidden = true;
   placing = {
@@ -952,26 +1028,45 @@ function grabDecorSticker(ev, item) {
 function renderDecor(data) {
   const items = data.items || [];
   decorItems = items;
-  paintStickers(data.stickers);
-  decorEmpty.hidden = items.length > 0;
-  decorGrid.innerHTML = items
+  if (data.stickers) lastStickers = data.stickers;
+  if (!decorRemoveMode) paintStickers(lastStickers);
+  const shown = items.filter((row) => row.wear === "pristine");
+  const placed = items.some((row) => row.placed);
+  if (decorRemove) {
+    decorRemove.disabled = !placed;
+    decorRemove.textContent = "Remove sticker";
+  }
+  if (!items.length) {
+    decorEmpty.hidden = false;
+    decorEmpty.textContent = "No decorations yet. Visit the Store to buy stickers.";
+    decorGrid.innerHTML = "";
+    return;
+  }
+  if (!shown.length) {
+    decorEmpty.hidden = false;
+    decorEmpty.textContent = "Worn stickers stay on the table. Use Remove sticker to peel one off.";
+    decorGrid.innerHTML = "";
+    return;
+  }
+  decorEmpty.hidden = true;
+  decorGrid.innerHTML = shown
     .map((item) => {
-      const actions = [
-        item.can_edit ? `<button type="button" class="shop-edit" data-id="${item.id}">Edit</button>` : "",
-        item.can_remove ? `<button type="button" class="shop-remove" data-id="${item.id}">Remove</button>` : "",
-      ].join("");
+      const actions = item.can_edit
+        ? `<div class="shop-actions"><button type="button" class="shop-edit" data-id="${item.id}">Edit</button></div>`
+        : "";
       const hint = item.can_place
         ? `<p class="shop-hint">Click or drag to place</p>`
-        : item.can_edit
-          ? `<p class="shop-hint">Placed</p>`
-          : `<p class="shop-hint">Worn — peel to remove</p>`;
-      return `<article class="shop-tile${item.can_place ? " is-placeable" : ""}" data-id="${item.id}">
+        : `<p class="shop-hint">Placed</p>`;
+      const tileClass = ["shop-tile", item.can_place ? "is-placeable" : ""]
+        .filter(Boolean)
+        .join(" ");
+      return `<article class="${tileClass}" data-id="${item.id}">
         <span class="shop-kind">Sticker</span>
         <div class="shop-art"><img src="${item.image}" alt="${item.name}" draggable="false" /></div>
         <h3>${item.name}</h3>
         <p class="shop-wear">${item.wear_label}</p>
         ${hint}
-        ${actions ? `<div class="shop-actions">${actions}</div>` : ""}
+        ${actions}
       </article>`;
     })
     .join("");
@@ -989,28 +1084,70 @@ async function refreshDecor() {
 
 async function openStore() {
   closeMenu();
+  endPeelMode();
   if (!storePanel.hidden) {
-    showView("play");
+    showView(returnView);
     return;
   }
+  if (currentView === "home" || currentView === "play") returnView = currentView;
   showView("store");
   await refreshStore();
 }
 
 async function openDecor() {
   closeMenu();
+  endPeelMode();
   if (!decorPanel.hidden) {
-    showView("play");
+    showView(returnView);
     return;
   }
+  if (currentView === "home" || currentView === "play") returnView = currentView;
   showView("decor");
   await refreshDecor();
 }
 
 storeBtn.addEventListener("click", openStore);
 decorBtn.addEventListener("click", openDecor);
-storeBack.addEventListener("click", () => showView("play"));
-decorBack.addEventListener("click", () => showView("play"));
+storeBack.addEventListener("click", () => {
+  endPeelMode();
+  showView(returnView);
+});
+decorBack.addEventListener("click", () => {
+  endPeelMode();
+  showView(returnView);
+});
+
+function hasPlacedSticker() {
+  return (lastStickers || []).some((row) => row.kind !== "residue");
+}
+
+function startPeelMode() {
+  if (!hasPlacedSticker()) return;
+  decorRemoveMode = true;
+  peelId = "";
+  peelConfirm.hidden = true;
+  showView("play");
+  document.body.classList.add("is-peeling");
+  if (peelHint) peelHint.hidden = false;
+  paintStickers(lastStickers);
+}
+
+function endPeelMode() {
+  const was = decorRemoveMode;
+  decorRemoveMode = false;
+  peelId = "";
+  peelConfirm.hidden = true;
+  if (peelHint) peelHint.hidden = true;
+  document.body.classList.remove("is-peeling");
+  if (was) paintStickers(lastStickers);
+}
+
+if (decorRemove) {
+  decorRemove.addEventListener("click", () => {
+    if (!hasPlacedSticker()) return;
+    startPeelMode();
+  });
+}
 
 decorGrid.addEventListener("pointerdown", (ev) => {
   if (ev.target.closest("button")) return;
@@ -1029,12 +1166,6 @@ decorGrid.addEventListener("click", (ev) => {
     const x = (Number(item.x) || 0.5) * window.innerWidth;
     const y = (Number(item.y) || 0.5) * window.innerHeight;
     beginPlacement(item, x, y);
-    return;
-  }
-  const peel = ev.target.closest(".shop-remove");
-  if (peel) {
-    peelId = peel.dataset.id;
-    peelConfirm.hidden = false;
   }
 });
 
@@ -1043,6 +1174,14 @@ peelNo.addEventListener("click", () => {
   peelId = "";
 });
 
+if (peelCancel) {
+  peelCancel.addEventListener("click", () => {
+    endPeelMode();
+    showView("decor");
+    renderDecor({ items: decorItems, stickers: lastStickers });
+  });
+}
+
 peelYes.addEventListener("click", async () => {
   const id = peelId;
   peelConfirm.hidden = true;
@@ -1050,8 +1189,13 @@ peelYes.addEventListener("click", async () => {
   if (!id) return;
   try {
     const data = await api("/api/sticker/remove", { id });
-    renderDecor(data);
+    decorItems = data.items || [];
+    lastStickers = data.stickers || [];
+    if (!hasPlacedSticker()) endPeelMode();
+    else paintStickers(lastStickers);
   } catch (err) {
+    endPeelMode();
+    showView("decor");
     decorEmpty.hidden = false;
     decorEmpty.textContent = err.message;
   }
@@ -1148,8 +1292,11 @@ storeGrid.addEventListener("click", async (ev) => {
 
 statsBtn.addEventListener("click", async () => {
   closeMenu();
+  endPeelMode();
+  if (currentView === "store" || currentView === "decor" || currentView === "tutorial") {
+    showView(returnView);
+  }
   const opening = statsPanel.hidden;
-  showView("play");
   statsPanel.hidden = !opening;
   statsBtn.textContent = statsPanel.hidden ? "Stats" : "Hide stats";
   if (!statsPanel.hidden) await refreshStats();
@@ -1185,8 +1332,23 @@ document.addEventListener("keydown", (ev) => {
     endPlacement();
     return;
   }
+  if (!peelConfirm.hidden) {
+    peelConfirm.hidden = true;
+    peelId = "";
+    return;
+  }
+  if (decorRemoveMode) {
+    endPeelMode();
+    showView("decor");
+    renderDecor({ items: decorItems, stickers: lastStickers });
+    return;
+  }
   peelConfirm.hidden = true;
-  if (!storePanel.hidden || !decorPanel.hidden) showView("play");
+  if (currentView === "tutorial") {
+    showView("home");
+    return;
+  }
+  if (!storePanel.hidden || !decorPanel.hidden) showView(returnView);
 });
 
 async function pauseClock() {
@@ -1209,11 +1371,26 @@ async function orderDice() {
   }
 }
 
+function askConfirm(action, message, yesLabel) {
+  confirmAction = action;
+  if (confirmMsg) confirmMsg.textContent = message;
+  confirmYes.textContent = yesLabel;
+  confirmEl.classList.toggle("confirm-float", currentView !== "play");
+  confirmEl.hidden = false;
+}
+
+function goHome() {
+  closeMenu();
+  if (placing) endPlacement();
+  endPeelMode();
+  showView("home");
+}
+
 function askAbandon() {
   if (busy || abandonBtn.disabled) return;
   closeMenu();
   wakeAttract(true).then(armAttract);
-  confirmEl.hidden = false;
+  askConfirm("abandon", "Are you sure?", "Abandon");
 }
 
 confirmNo.addEventListener("click", () => {
@@ -1223,6 +1400,10 @@ confirmNo.addEventListener("click", () => {
 confirmYes.addEventListener("click", async () => {
   confirmEl.hidden = true;
   if (busy) return;
+  if (confirmAction === "new") {
+    await startFreshGame();
+    return;
+  }
   await wakeAttract(true);
   try {
     applyState(await api("/api/abandon", {}));
@@ -1240,7 +1421,29 @@ newBtn.addEventListener("click", () => {
 orderBtn.addEventListener("click", orderDice);
 pauseBtn.addEventListener("click", pauseClock);
 abandonBtn.addEventListener("click", askAbandon);
+if (homeBtn) homeBtn.addEventListener("click", goHome);
+if (homeNew) {
+  homeNew.addEventListener("click", () => {
+    if (lastCanContinue) {
+      askConfirm("new", "Start a new game? The current one will be abandoned.", "New game");
+      return;
+    }
+    startFreshGame();
+  });
+}
+if (homeContinue) {
+  homeContinue.addEventListener("click", () => {
+    showView("play");
+  });
+}
+if (homeTutorial) {
+  homeTutorial.addEventListener("click", () => showView("tutorial"));
+}
+if (tutorialBack) {
+  tutorialBack.addEventListener("click", () => showView("home"));
+}
 
+showView("home");
 api("/api/state").then(applyState).catch(() => {
   msgEl.textContent = "Could not reach the game server.";
 });

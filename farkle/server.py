@@ -76,6 +76,8 @@ class Handler(SimpleHTTPRequestHandler):
                 payload = game.place_sticker(body)
             elif path == "/api/sticker/remove":
                 payload = game.remove_sticker(str(body.get("id", "")))
+            elif path == "/api/residue/remove":
+                payload = game.remove_residue(str(body.get("id", "")))
             else:
                 self._send_json({"error": "not found"}, 404)
                 return

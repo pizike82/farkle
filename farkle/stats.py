@@ -6,7 +6,15 @@ import json
 import time
 from pathlib import Path
 
-from .store import CATALOG, CATALOG_BY_ID, item_image, wear_for_games
+from .store import (
+    CATALOG,
+    CATALOG_BY_ID,
+    item_image,
+    residue_image,
+    residue_rotation,
+    residue_scale,
+    wear_for_games,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 STATS_PATH = ROOT / "data" / "stats.json"
@@ -91,6 +99,7 @@ def empty_lifetime() -> dict:
         "nerve": 1000,
         "games_rated": 0,
         "decorations": [],
+        "residues": [],
     }
 
 
@@ -155,6 +164,8 @@ class Stats:
             life["nerve"] = 1000
         if not isinstance(life.get("decorations"), list):
             life["decorations"] = []
+        if not isinstance(life.get("residues"), list):
+            life["residues"] = []
         best = life.get("fastest_win_ms")
         if best is not None and int(best) > IMPOSSIBLE_WIN_MS:
             life["fastest_win_ms"] = None
@@ -591,10 +602,43 @@ class Stats:
                     "rotation": float(owned.get("rotation") or 0),
                     "can_place": not placed,
                     "can_edit": placed and wear["key"] == "pristine",
-                    "can_remove": wear["key"] != "pristine",
+                    "can_remove": True,
                 }
             )
         return {"items": items, "stickers": self.placed_stickers()}
+
+    def _max_z(self) -> int:
+        zmax = 0
+        for bag in (
+            self.lifetime.get("decorations") or [],
+            self.lifetime.get("residues") or [],
+        ):
+            for other in bag:
+                if isinstance(other, dict):
+                    zmax = max(zmax, int(other.get("z") or 0))
+        return zmax
+
+    def _leave_residue(self, item: dict) -> None:
+        if not item.get("placed"):
+            return
+        spec = CATALOG_BY_ID.get(item.get("id"))
+        if not spec:
+            return
+        shape = str(spec.get("residue") or "large")
+        marks = self.lifetime.setdefault("residues", [])
+        marks.append(
+            {
+                "id": f"residue-{item.get('id')}-{now_ms()}",
+                "kind": "residue",
+                "shape": shape,
+                "image": residue_image(shape),
+                "x": float(item.get("x") or 0.5),
+                "y": float(item.get("y") or 0.5),
+                "scale": residue_scale(item.get("scale") or 1),
+                "rotation": residue_rotation(item.get("rotation") or 0, spec),
+                "z": int(item.get("z") or 0),
+            }
+        )
 
     def _owned_item(self, item_id: str) -> dict | None:
         for item in self.lifetime.get("decorations") or []:
@@ -616,12 +660,29 @@ class Stats:
                 {
                     "id": spec["id"],
                     "name": spec["name"],
+                    "kind": "sticker",
                     "image": item_image(spec, wear_file=wear["file"]),
                     "x": float(owned.get("x") or 0.5),
                     "y": float(owned.get("y") or 0.5),
                     "scale": float(owned.get("scale") or 1),
                     "rotation": float(owned.get("rotation") or 0),
                     "z": int(owned.get("z") or 0),
+                }
+            )
+        for mark in self.lifetime.get("residues") or []:
+            if not isinstance(mark, dict):
+                continue
+            out.append(
+                {
+                    "id": str(mark.get("id") or ""),
+                    "name": "Residue",
+                    "kind": "residue",
+                    "image": str(mark.get("image") or residue_image(str(mark.get("shape") or "large"))),
+                    "x": float(mark.get("x") or 0.5),
+                    "y": float(mark.get("y") or 0.5),
+                    "scale": float(mark.get("scale") or 0.5),
+                    "rotation": float(mark.get("rotation") or 0),
+                    "z": int(mark.get("z") or 0),
                 }
             )
         out.sort(key=lambda row: row["z"])
@@ -669,11 +730,7 @@ class Stats:
         item["y"] = min(1.0, max(0.0, float(y)))
         item["scale"] = min(1.0, max(0.55, float(scale)))
         item["rotation"] = float(rotation) % 360.0
-        zmax = 0
-        for other in self.lifetime.get("decorations") or []:
-            if isinstance(other, dict):
-                zmax = max(zmax, int(other.get("z") or 0))
-        item["z"] = zmax + 1
+        item["z"] = self._max_z() + 1
         self.save()
         return self.decorations_snapshot()
 
@@ -682,10 +739,21 @@ class Stats:
         item = self._owned_item(item_id)
         if not item:
             raise ValueError("You do not own that sticker.")
-        wear = wear_for_games(item.get("games"))
-        if wear["key"] == "pristine":
-            raise ValueError("Pristine stickers can be edited, not peeled.")
+        self._leave_residue(item)
         bag.remove(item)
+        self.save()
+        return self.decorations_snapshot()
+
+    def remove_residue(self, mark_id: str) -> dict:
+        marks = self.lifetime.setdefault("residues", [])
+        found = None
+        for mark in marks:
+            if isinstance(mark, dict) and mark.get("id") == mark_id:
+                found = mark
+                break
+        if not found:
+            raise ValueError("That residue is already gone.")
+        marks.remove(found)
         self.save()
         return self.decorations_snapshot()
 
