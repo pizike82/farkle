@@ -6,6 +6,7 @@ import argparse
 import atexit
 import json
 import signal
+import socket
 import sys
 import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -141,19 +142,42 @@ class Handler(SimpleHTTPRequestHandler):
         print("%s - %s" % (self.address_string(), message), file=sys.stderr)
 
 
-def _announce(url: str) -> None:
-    banner = (
-        "\n"
-        "  Farkle is running\n"
-        f"  Open: {url}\n"
-        "  Stop: Ctrl+C\n"
-    )
-    print(banner, flush=True)
+def lan_ip() -> str | None:
+    """Best-effort IPv4 address other machines on the LAN can use."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("1.1.1.1", 80))
+            ip = sock.getsockname()[0]
+    except OSError:
+        return None
+    if not ip or ip.startswith("127."):
+        return None
+    return ip
+
+
+def _announce(host: str, port: int) -> str:
+    local = f"http://127.0.0.1:{port}/"
+    lines = ["", "  Farkle is running", f"  This PC: {local}"]
+    if host not in ("0.0.0.0", "", "::"):
+        share = f"http://{host}:{port}/"
+        if share != local:
+            lines.append(f"  Network: {share}")
+    else:
+        found = lan_ip()
+        if found:
+            lines.append(f"  Network: http://{found}:{port}/")
+    lines.extend(["  Stop: Ctrl+C", ""])
+    print("\n".join(lines), flush=True)
+    return local
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Farkle")
-    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument(
+        "--host",
+        default="0.0.0.0",
+        help="Bind address (default 0.0.0.0 so others on the LAN can join)",
+    )
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument(
         "--no-browser",
@@ -162,7 +186,6 @@ def main() -> None:
     )
     args = parser.parse_args()
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
-    url = f"http://{args.host}:{args.port}/"
 
     def _stop(signum, _frame) -> None:
         _flush_clock()
@@ -173,9 +196,11 @@ def main() -> None:
             signal.signal(sig, _stop)
         except (OSError, ValueError):
             pass
-    _announce(url)
+    open_url = _announce(args.host, args.port)
+    if args.host not in ("0.0.0.0", "", "::", "127.0.0.1"):
+        open_url = f"http://{args.host}:{args.port}/"
     if not args.no_browser:
-        webbrowser.open(url)
+        webbrowser.open(open_url)
     httpd.serve_forever()
 
 
