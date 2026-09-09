@@ -36,10 +36,7 @@
           Continue Game
           <span id="homeContinueMeta" class="home-btn-meta"></span>
         </button>
-        <button id="homeMulti" type="button" disabled>
-          Multiplayer
-          <span class="home-btn-meta">Coming soon</span>
-        </button>
+        <button id="homeMulti" type="button">Multiplayer</button>
         <button id="homeTutorial" type="button">Tutorial</button>
       </div>
     </div>
@@ -53,7 +50,7 @@
       </header>
       <div class="tutorial-body">
         <p>Roll six dice. Set aside a scoring set, then roll the rest or bank the turn into your total. A roll with nothing scoring is a Farkle — that turn’s points are gone.</p>
-        <p>If every remaining die scores, you have hot dice and may roll all six again. First to 10,000 wins.</p>
+        <p>If every remaining die scores, you have hot dice: <b>Roll all six</b> throws a fresh set and keeps this turn going. Bank still ends the turn. First to 10,000 wins.</p>
         <h3>Scoring</h3>
         <ul>
           <li>Single 1 = 100 &nbsp;·&nbsp; Single 5 = 50</li>
@@ -67,15 +64,82 @@
         <p>Order sorts the tray. Pause freezes the clock. Abandon and New game are in the gear menu once you’re playing.</p>
       </div>
     </section>
+    <section id="lobbyPanel" class="shop-panel lobby-panel" hidden>
+      <header class="shop-head">
+        <div>
+          <h2>Lobby</h2>
+          <p id="lobbySub" class="shop-wallet">Join or create a table</p>
+        </div>
+        <button id="lobbyBack" type="button">Back</button>
+      </header>
+      <p id="lobbyMsg" class="shop-msg" hidden></p>
+      <div id="lobbyHub">
+        <label class="lobby-field">
+          <span>Your name</span>
+          <input id="lobbyName" type="text" maxlength="20" placeholder="Player" autocomplete="nickname" />
+        </label>
+        <div class="lobby-split">
+          <form id="lobbyCreateForm" class="lobby-card">
+            <h3>Create game</h3>
+            <label class="lobby-field">
+              <span>Type</span>
+              <select id="lobbyMode">
+                <option value="standard">Standard — 10,000</option>
+                <option value="blitz">Blitz — race to 5,000</option>
+              </select>
+            </label>
+            <label class="lobby-field" id="lobbySeatsField">
+              <span>Players</span>
+              <select id="lobbySeats">
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+              </select>
+            </label>
+            <label class="lobby-field" id="lobbyForfeitField">
+              <span>Turn forfeit</span>
+              <select id="lobbyForfeit">
+                <option value="15">15 seconds</option>
+                <option value="20">20 seconds</option>
+                <option value="30">30 seconds</option>
+                <option value="45" selected>45 seconds</option>
+                <option value="60">60 seconds</option>
+                <option value="90">90 seconds</option>
+                <option value="120">2 minutes</option>
+              </select>
+            </label>
+            <button id="lobbyCreate" type="submit">Create</button>
+          </form>
+          <div class="lobby-card">
+            <h3>Join game</h3>
+            <p id="lobbyEmpty" class="shop-empty">No open tables. Create one, or wait for a host.</p>
+            <div id="lobbyRooms" class="lobby-rooms"></div>
+          </div>
+        </div>
+      </div>
+      <div id="lobbyRoom" hidden>
+        <p class="lobby-code">Room <b id="lobbyCode"></b></p>
+        <p id="lobbyRules" class="lobby-rules"></p>
+        <ul id="lobbyPlayers" class="lobby-players"></ul>
+        <div class="lobby-room-actions">
+          <button id="lobbyReady" type="button">Ready</button>
+          <button id="lobbyLeave" type="button">Leave</button>
+        </div>
+      </div>
+    </section>
+    <div id="rivals" class="rivals" hidden></div>
     <div id="playArea" class="play-area" aria-label="Play area" hidden>
     <div class="scores">
       <div class="score"><span>Total</span><b id="total">0</b></div>
       <div class="score"><span>Turn</span><b id="turn">0</b></div>
       <div class="score"><span>Selected</span><b id="selected">0</b></div>
-      <div class="score"><span>Round</span><b id="round">0</b></div>
+      <div class="score" id="roundScore"><span>Round</span><b id="round">0</b></div>
       <div class="score"><span>Goal</span><b id="target">10000</b></div>
-      <div class="score"><span>Time</span><b id="clock">0:00</b></div>
-      <div class="score"><span>Nerve</span><b id="nerve">1000</b></div>
+      <div class="score" id="clockScore"><span>Time</span><b id="clock">0:00</b></div>
+      <div class="score" id="forfeitScore" hidden><span>Turn left</span><b id="forfeitClock">0:00</b></div>
+      <div class="score" id="nerveScore"><span>Nerve</span><b id="nerve">1000</b></div>
     </div>
     <div id="tray" class="tray" aria-label="Dice">
       <div class="die" role="button" tabindex="0" aria-label="Die 1">
@@ -98,6 +162,20 @@
       <button id="order" type="button" disabled>Order</button>
       <button id="pause" type="button" disabled>Pause</button>
     </div>
+    </div>
+    <div id="mpOver" class="mp-over" hidden>
+      <section class="mp-over-card" aria-labelledby="mpOverTitle">
+        <p class="mp-over-kicker">Multiplayer</p>
+        <h2 id="mpOverTitle">Game over</h2>
+        <p id="mpOverWinner" class="mp-over-winner"></p>
+        <p id="mpOverMeta" class="mp-over-meta"></p>
+        <ul id="mpOverStandings" class="mp-over-standings"></ul>
+        <dl id="mpOverFacts" class="mp-over-facts"></dl>
+        <div class="mp-over-actions">
+          <button id="mpOverHome" type="button">Main Menu</button>
+          <button id="mpOverLobby" type="button">Multiplayer</button>
+        </div>
+      </section>
     </div>
     <section id="storePanel" class="shop-panel" hidden>
       <header class="shop-head">

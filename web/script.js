@@ -46,6 +46,41 @@ const homeContinue = document.getElementById("homeContinue");
 const homeContinueMeta = document.getElementById("homeContinueMeta");
 const homeTutorial = document.getElementById("homeTutorial");
 const tutorialBack = document.getElementById("tutorialBack");
+const homeMulti = document.getElementById("homeMulti");
+const lobbyPanel = document.getElementById("lobbyPanel");
+const lobbyHub = document.getElementById("lobbyHub");
+const lobbyRoom = document.getElementById("lobbyRoom");
+const lobbyBack = document.getElementById("lobbyBack");
+const lobbyName = document.getElementById("lobbyName");
+const lobbyMsg = document.getElementById("lobbyMsg");
+const lobbySub = document.getElementById("lobbySub");
+const lobbyCreateForm = document.getElementById("lobbyCreateForm");
+const lobbyMode = document.getElementById("lobbyMode");
+const lobbySeats = document.getElementById("lobbySeats");
+const lobbyForfeit = document.getElementById("lobbyForfeit");
+const lobbySeatsField = document.getElementById("lobbySeatsField");
+const lobbyForfeitField = document.getElementById("lobbyForfeitField");
+const lobbyRooms = document.getElementById("lobbyRooms");
+const lobbyEmpty = document.getElementById("lobbyEmpty");
+const lobbyCode = document.getElementById("lobbyCode");
+const lobbyRules = document.getElementById("lobbyRules");
+const lobbyPlayers = document.getElementById("lobbyPlayers");
+const lobbyReady = document.getElementById("lobbyReady");
+const lobbyLeave = document.getElementById("lobbyLeave");
+const rivalsEl = document.getElementById("rivals");
+const forfeitScore = document.getElementById("forfeitScore");
+const forfeitClock = document.getElementById("forfeitClock");
+const clockScore = document.getElementById("clockScore");
+const nerveScore = document.getElementById("nerveScore");
+const roundScore = document.getElementById("roundScore");
+const mpOver = document.getElementById("mpOver");
+const mpOverTitle = document.getElementById("mpOverTitle");
+const mpOverWinner = document.getElementById("mpOverWinner");
+const mpOverMeta = document.getElementById("mpOverMeta");
+const mpOverStandings = document.getElementById("mpOverStandings");
+const mpOverFacts = document.getElementById("mpOverFacts");
+const mpOverHome = document.getElementById("mpOverHome");
+const mpOverLobby = document.getElementById("mpOverLobby");
 const storeBtn = document.getElementById("storeBtn");
 const decorBtn = document.getElementById("decorBtn");
 const storePanel = document.getElementById("storePanel");
@@ -100,6 +135,7 @@ gsap.set(".cube", {
 });
 
 dieEls.forEach((el, i) => {
+  el.dataset.dieSize = String(SIZE);
   el.setAttribute("aria-label", `Die ${i + 1}`);
   el.addEventListener("click", () => selectDie(i));
   el.addEventListener("keydown", (ev) => {
@@ -127,6 +163,15 @@ let lastCanContinue = false;
 let currentView = "home";
 let returnView = "home";
 let confirmAction = "abandon";
+let mpRoom = "";
+let mpPoll = 0;
+let lastRollSeq = 0;
+let rivalDice = {};
+let rivalBusy = {};
+let lastRivalSeq = {};
+let mpRemainBase = 0;
+let mpRemainAt = 0;
+let mpHold = false;
 let attracting = false;
 let restoring = false;
 let attractTl = null;
@@ -265,14 +310,22 @@ function tickClock() {
     else ms += extra;
   }
   clockEl.textContent = fmtMs(ms);
+  if (forfeitClock && currentView === "multiplay") {
+    forfeitClock.textContent = mpHold ? "—" : fmtMs(Math.max(0, mpRemainBase - (Date.now() - mpRemainAt)));
+  }
+}
+
+function dieSizeOf(el) {
+  return Number(el && el.dataset.dieSize) || SIZE;
 }
 
 function showFace(el, value) {
+  const size = dieSizeOf(el);
   const rot = rots[value - 1];
   gsap.set(el.querySelector(".cube"), {
     rotationX: -rot.rx,
     rotationY: -rot.ry,
-    z: Z_FAR,
+    z: -size * 2,
   });
 }
 
@@ -425,21 +478,23 @@ function applyState(state) {
   roundEl.textContent = fmtNum(state.round);
   targetEl.textContent = fmtNum(state.target);
   msgEl.textContent = state.paused ? "Paused." : state.message;
-  const over = state.phase === "won" || state.phase === "abandoned";
+  const over = state.phase === "won" || state.phase === "abandoned" || state.phase === "lost";
   const paused = !!state.paused;
   rollBtn.disabled = busy || over || paused || !state.can_roll;
+  rollBtn.textContent = state.hot_ready && state.can_roll && !over && !paused ? "Roll all six" : "Roll";
+  rollBtn.classList.toggle("is-hot", !!state.hot_ready && !!state.can_roll && !over && !paused);
   bankBtn.disabled = busy || over || paused || !state.can_bank;
   orderBtn.disabled = busy || over || paused || !state.can_arrange;
-  pauseBtn.disabled = busy || over;
+  pauseBtn.disabled = busy || over || !!state.multiplayer;
   pauseBtn.textContent = paused ? "Unpause" : "Pause";
   abandonBtn.disabled = busy || over || !state.can_abandon;
-  newBtn.disabled = busy || !over;
+  newBtn.disabled = busy || !over || !!state.multiplayer;
   if (over) confirmEl.hidden = true;
   nerveEl.textContent = fmtNum(state.nerve ?? 1000);
   clockBase = state.elapsed_ms || 0;
   clockAt = Date.now();
   lastPaused = paused;
-  lastCanContinue = !!state.can_abandon;
+  if (!state.multiplayer) lastCanContinue = !!state.can_abandon;
   updateHomeMenu(state);
   clockRunning = !over && !paused && !!state.clock_running;
   tickClock();
@@ -454,8 +509,9 @@ function applyState(state) {
     el.classList.toggle("locked", die.locked);
     el.classList.toggle("selectable", !busy && !paused && state.phase === "choose" && die.live && !die.locked);
     el.setAttribute("aria-label", `Die ${i + 1}, ${die.value}`);
-    if (!attracting) showFace(el, die.value);
+    if (!attracting && !busy) showFace(el, die.value);
   });
+  paintHotCue(state);
   if (state.hot) {
     flashHot(state.hot_note, state.dice);
     if (totalUp) popScore(totalEl, 1.85);
@@ -522,16 +578,19 @@ async function api(path, body) {
   return data;
 }
 
-function animateRoll(indices, values) {
-  const cubes = indices.map((i) => dieEls[i].querySelector(".cube"));
+function animateRoll(indices, values, nodes) {
+  const list = nodes || dieEls;
+  const size = dieSizeOf(list[indices[0]] || list[0]);
+  const cubes = indices.map((i) => list[i] && list[i].querySelector(".cube")).filter(Boolean);
+  if (!cubes.length) return Promise.resolve();
   return gsap
     .timeline()
     .fromTo(
       cubes,
-      { z: Z_FAR },
+      { z: -size * 2 },
       {
         duration: 0.75,
-        z: Z_NEAR,
+        z: -size,
         ease: "expo",
         yoyoEase: "bounce.out(5)",
         repeat: 1,
@@ -559,15 +618,24 @@ async function roll() {
   bankBtn.disabled = true;
   msgEl.textContent = "Rolling…";
   try {
-    const data = await api("/api/roll", {});
-    await animateRoll(data.rolled, data.values);
+    const data = mpRoom
+      ? await api("/api/mp/roll", mpPayload())
+      : await api("/api/roll", {});
+    const rolled = data.rolled || (data.roll_event && data.roll_event.rolled) || [];
+    const values = data.values || (data.roll_event && data.roll_event.values) || [];
+    await animateRoll(rolled, values);
     busy = false;
-    applyState(data);
+    if (data.multiplayer) applyMpState(data);
+    else applyState(data);
   } catch (err) {
     busy = false;
     msgEl.textContent = err.message;
-    const state = await api("/api/state");
-    applyState(state);
+    try {
+      if (mpRoom) applyMpState(await api("/api/mp/state", mpPayload()));
+      else applyState(await api("/api/state"));
+    } catch {
+      /* ignore */
+    }
   }
 }
 
@@ -576,7 +644,11 @@ async function selectDie(index) {
   if (dieEls[index] && dieEls[index].classList.contains("locked")) return;
   await wakeAttract(true);
   try {
-    applyState(await api("/api/select", { index }));
+    const data = mpRoom
+      ? await api("/api/mp/select", mpPayload({ index }))
+      : await api("/api/select", { index });
+    if (data.multiplayer) applyMpState(data);
+    else applyState(data);
   } catch {
     /* ignore clicks that the server rejects */
   }
@@ -586,7 +658,11 @@ async function bank() {
   if (busy || lastPaused) return;
   await wakeAttract(true);
   try {
-    applyState(await api("/api/bank", {}));
+    const data = mpRoom
+      ? await api("/api/mp/bank", mpPayload())
+      : await api("/api/bank", {});
+    if (data.multiplayer) applyMpState(data);
+    else applyState(data);
   } catch (err) {
     msgEl.textContent = err.message;
   }
@@ -622,6 +698,23 @@ function updateHomeMenu(state) {
   if (on && homeContinueMeta) {
     homeContinueMeta.textContent = `${fmtNum(state.total)} pts · round ${fmtNum(state.round)}`;
   }
+}
+
+function showHotReadyBanner() {
+  hotBanner.textContent = "Hot dice — roll all six";
+  hotBanner.hidden = false;
+  gsap.killTweensOf(hotBanner);
+  gsap.set(hotBanner, { opacity: 1, y: 0, scale: 1 });
+}
+
+function paintHotCue(state) {
+  const over = state.phase === "won" || state.phase === "abandoned" || state.phase === "lost";
+  if (state.hot || over || state.paused) return;
+  if (state.hot_ready && state.can_roll) {
+    if (!hotTimer) showHotReadyBanner();
+    return;
+  }
+  if (!hotTimer) hotBanner.hidden = true;
 }
 
 function flashHot(note, dice) {
@@ -807,13 +900,22 @@ async function refreshStats() {
 
 function showView(name) {
   currentView = name;
+  document.body.classList.toggle("is-multi", name === "multiplay");
+  if (name !== "multiplay") document.body.classList.remove("is-blitz");
   if (homePanel) homePanel.hidden = name !== "home";
   if (tutorialPanel) tutorialPanel.hidden = name !== "tutorial";
-  playArea.hidden = name !== "play";
+  if (lobbyPanel) lobbyPanel.hidden = name !== "lobby";
+  if (rivalsEl) rivalsEl.hidden = name !== "multiplay";
+  if (mpOver && name !== "multiplay") mpOver.hidden = true;
+  playArea.hidden = name !== "play" && name !== "multiplay";
   storePanel.hidden = name !== "store";
   decorPanel.hidden = name !== "decor";
-  if (homeBtn) homeBtn.hidden = name === "home" || name === "tutorial";
-  if (name !== "play") {
+  if (homeBtn) homeBtn.hidden = name === "home" || name === "tutorial" || name === "lobby";
+  if (forfeitScore) forfeitScore.hidden = name !== "multiplay";
+  if (clockScore) clockScore.hidden = name === "multiplay";
+  if (nerveScore) nerveScore.hidden = name === "multiplay";
+  if (roundScore) roundScore.hidden = name === "multiplay";
+  if (name !== "play" && name !== "multiplay") {
     statsPanel.hidden = true;
     statsBtn.textContent = "Stats";
     confirmEl.hidden = true;
@@ -821,6 +923,432 @@ function showView(name) {
     if (attracting) wakeAttract(false);
   }
   if (name === "play") armAttract();
+  if (name !== "lobby" && name !== "multiplay") stopMpPoll();
+}
+
+function playerName() {
+  const typed = lobbyName && lobbyName.value.trim();
+  if (typed) return typed;
+  try {
+    return localStorage.getItem("farkle-name") || "Player";
+  } catch {
+    return "Player";
+  }
+}
+
+function savePlayerName() {
+  if (!lobbyName) return;
+  const name = lobbyName.value.trim();
+  if (!name) return;
+  try {
+    localStorage.setItem("farkle-name", name);
+  } catch {
+    /* ignore */
+  }
+}
+
+function mpPayload(extra) {
+  return { player: clientId, room: mpRoom, name: playerName(), ...(extra || {}) };
+}
+
+function stopMpPoll() {
+  clearInterval(mpPoll);
+  mpPoll = 0;
+}
+
+function startMpPoll() {
+  stopMpPoll();
+  mpPoll = setInterval(() => {
+    if (mpRoom) pollMp();
+    else refreshLobbyList();
+  }, currentView === "multiplay" ? 320 : 900);
+}
+
+function showLobbyMsg(err) {
+  if (!lobbyMsg) return;
+  if (!err) {
+    lobbyMsg.hidden = true;
+    lobbyMsg.textContent = "";
+    return;
+  }
+  lobbyMsg.hidden = false;
+  lobbyMsg.textContent = err;
+}
+
+function setLobbyScreen(room) {
+  if (lobbyHub) lobbyHub.hidden = !!room;
+  if (lobbyRoom) lobbyRoom.hidden = !room;
+  if (lobbySub) lobbySub.textContent = room ? "Waiting for everyone to ready up" : "Join or create a table";
+}
+
+function renderLobbyPlayers(data) {
+  if (!lobbyPlayers) return;
+  const seated = data.players || [];
+  const seats = Number(data.seats) || seated.length;
+  const rows = seated.map((row) => {
+    const tags = [
+      row.is_you ? "You" : "",
+      row.is_host ? "Host" : "",
+      row.ready ? "Ready" : "Not ready",
+    ].filter(Boolean).join(" · ");
+    return `<li><span>${row.name}</span><span class="${row.ready ? "is-ready" : ""}">${tags}</span></li>`;
+  });
+  for (let i = seated.length; i < seats; i++) {
+    rows.push(`<li class="is-open"><span>Open seat</span><span>Waiting</span></li>`);
+  }
+  lobbyPlayers.innerHTML = rows.join("");
+  if (lobbyReady) lobbyReady.textContent = data.you && data.you.ready ? "Unready" : "Ready";
+}
+
+function renderLobbyRoom(data) {
+  mpRoom = data.room;
+  setLobbyScreen(true);
+  if (lobbyCode) lobbyCode.textContent = data.room;
+  if (lobbyRules) {
+    lobbyRules.textContent = data.simultaneous
+      ? `${data.mode_label} · 2 player race · first to ${fmtNum(data.target)}`
+      : `${data.mode_label} · ${data.seats} seats · ${data.forfeit_sec}s turn forfeit · first to ${fmtNum(data.target)}`;
+  }
+  const seated = (data.players || []).length;
+  const ready = (data.players || []).filter((row) => row.ready).length;
+  if (lobbySub) {
+    lobbySub.textContent = seated < data.seats
+      ? `Waiting for players · ${seated}/${data.seats} seated`
+      : `All seated — ready up to start (${ready}/${data.seats})`;
+  }
+  renderLobbyPlayers(data);
+}
+
+async function refreshLobbyList() {
+  if (!lobbyRooms || currentView !== "lobby" || mpRoom) return;
+  try {
+    const data = await fetch("/api/mp/lobby").then((res) => res.json());
+    const rooms = data.rooms || [];
+    const html = rooms
+      .map((row) => `<article class="lobby-room-row">
+        <p><b>${row.id}</b> ${row.mode_label}<span>${row.host} · ${row.taken}/${row.seats}${row.simultaneous ? " · race" : ` · ${row.forfeit_sec}s turns`}</span></p>
+        <button type="button" data-join="${row.id}">Join</button>
+      </article>`)
+      .join("");
+    if (lobbyRooms.innerHTML === html) {
+      lobbyEmpty.hidden = rooms.length > 0;
+      return;
+    }
+    lobbyEmpty.hidden = rooms.length > 0;
+    lobbyRooms.innerHTML = html;
+  } catch {
+    /* keep last list */
+  }
+}
+
+function prepareTray(tray, size = SIZE) {
+  const half = size / 2;
+  const nodes = [...tray.querySelectorAll(".die")];
+  nodes.forEach((el) => {
+    el.dataset.dieSize = String(size);
+  });
+  gsap.set(tray.querySelectorAll(".face"), {
+    position: "absolute",
+    userSelect: "none",
+    width: "100%",
+    height: "100%",
+    rotateY: (i) => rots[i % 6].ry,
+    rotateX: (i) => rots[i % 6].rx,
+    transformOrigin: `50% 50% -${half}px`,
+    z: half,
+    backgroundImage: "url(dieSprite.svg)",
+    backgroundPosition: (i) => `0px -${(i % 6) * size}px`,
+    backgroundSize: `${size}px ${size * 6}px`,
+    backgroundRepeat: "no-repeat",
+  });
+  gsap.set(nodes, { width: size, height: size, perspective: size * (400 / SIZE) });
+  gsap.set(tray.querySelectorAll(".cube"), {
+    position: "absolute",
+    width: size,
+    height: size,
+    transformStyle: "preserve-3d",
+    z: -size * 2,
+  });
+  nodes.forEach((el) => showFace(el, 1));
+  return nodes;
+}
+
+function showRivalFace(el, value) {
+  const v = Math.max(1, Math.min(6, Number(value) || 1));
+  el.style.backgroundPosition = `0px -${(v - 1) * 38}px`;
+}
+
+function animateRivalRoll(nodes, indices, values) {
+  const list = (indices || []).map((i) => nodes[i]).filter(Boolean);
+  if (!list.length) return Promise.resolve();
+  const proxy = { t: 0 };
+  return gsap.to(proxy, {
+    t: 1,
+    duration: 0.65,
+    ease: "none",
+    onUpdate() {
+      list.forEach((el) => {
+        el.style.backgroundPosition = `0px -${Math.floor(Math.random() * 6) * 38}px`;
+      });
+    },
+    onComplete() {
+      (indices || []).forEach((i, n) => {
+        if (nodes[i]) showRivalFace(nodes[i], values[n]);
+      });
+    },
+  });
+}
+
+function paintRivals(rivals) {
+  if (!rivalsEl) return;
+  const ids = (rivals || []).map((row) => row.id).join(",");
+  if (rivalsEl.dataset.ids !== ids) {
+    rivalDice = {};
+    rivalBusy = {};
+    lastRivalSeq = {};
+    rivalsEl.replaceChildren();
+    rivalsEl.dataset.ids = ids;
+    (rivals || []).forEach((row) => {
+      const seat = document.createElement("article");
+      seat.className = "rival-seat";
+      seat.dataset.id = row.id;
+      seat.innerHTML = `<header><span></span><b></b></header><div class="rival-tray"></div>`;
+      const tray = seat.querySelector(".rival-tray");
+      for (let i = 0; i < 6; i++) {
+        const pip = document.createElement("span");
+        pip.className = "rival-die";
+        tray.append(pip);
+      }
+      rivalDice[row.id] = [...tray.querySelectorAll(".rival-die")];
+      rivalsEl.append(seat);
+    });
+  }
+  (rivals || []).forEach((row) => {
+    const seat = rivalsEl.querySelector(`[data-id="${row.id}"]`);
+    if (!seat) return;
+    seat.classList.toggle("is-turn", !!row.is_turn);
+    seat.classList.toggle("is-farkle", row.phase === "hold");
+    const head = seat.querySelector("span");
+    const total = seat.querySelector("b");
+    const live = (row.dice || []).some((die) => die.live);
+    let tag = "";
+    if (row.phase === "hold") tag = " · farkle";
+    else if (row.is_turn && live) tag = " · rolling";
+    if (head) head.textContent = row.name + tag;
+    if (total) total.textContent = fmtNum(row.total);
+    const nodes = rivalDice[row.id] || [];
+    const incoming = row.last_roll && row.last_roll.seq > (lastRivalSeq[row.id] || 0);
+    (row.dice || []).forEach((die, i) => {
+      if (!nodes[i]) return;
+      nodes[i].classList.toggle("is-locked", !!die.locked);
+      nodes[i].classList.toggle("is-selected", !!die.selected);
+      if (!incoming && !rivalBusy[row.id]) showRivalFace(nodes[i], die.value);
+    });
+    if (incoming) {
+      lastRivalSeq[row.id] = row.last_roll.seq;
+      rivalBusy[row.id] = true;
+      animateRivalRoll(nodes, row.last_roll.rolled || [], row.last_roll.values || []).then(() => {
+        rivalBusy[row.id] = false;
+        (row.dice || []).forEach((die, i) => {
+          if (nodes[i]) showRivalFace(nodes[i], die.value);
+        });
+      });
+    }
+  });
+}
+
+function applyMpState(data, { animateSelf } = {}) {
+  if (data.status === "lobby") {
+    showView("lobby");
+    renderLobbyRoom(data);
+    startMpPoll();
+    return;
+  }
+  if (data.status === "playing" || data.status === "finished") {
+    showView("multiplay");
+    paintRivals(data.rivals || []);
+    document.body.classList.toggle("is-blitz", data.mode === "blitz" || !!data.simultaneous);
+    mpRemainBase = data.simultaneous ? 0 : data.turn_remaining_ms || 0;
+    mpRemainAt = Date.now();
+    mpHold = !!data.hold || !!data.simultaneous;
+    if (forfeitScore) forfeitScore.hidden = data.mode === "blitz" || !!data.simultaneous;
+    if (forfeitClock) forfeitClock.textContent = mpHold ? "—" : fmtMs(mpRemainBase);
+    if (data.roll_event) lastRollSeq = Math.max(lastRollSeq, data.roll_event.seq || 0);
+    if (tray) tray.classList.toggle("is-waiting", !data.simultaneous && !(data.you && data.you.is_turn));
+    startMpPoll();
+    applyState({
+      ...data,
+      paused: false,
+      stickers: lastStickers,
+      nerve: 1000,
+      clock_running: false,
+      elapsed_ms: 0,
+    });
+    if (data.status === "finished") {
+      stopMpPoll();
+      renderMpRecap(data);
+    } else if (mpOver) {
+      mpOver.hidden = true;
+    }
+    if (animateSelf && data.rolled) {
+      /* self roll already animated by caller */
+    }
+  }
+}
+
+function esc(text) {
+  return String(text ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderMpRecap(data) {
+  if (!mpOver) return;
+  const recap = data.recap || {};
+  const youWon = !!recap.you_won;
+  if (mpOverTitle) mpOverTitle.textContent = youWon ? "You win" : "Game over";
+  if (mpOverWinner) {
+    const name = recap.winner_name || "No winner";
+    const pts = fmtNum(recap.winner_total || 0);
+    mpOverWinner.textContent = recap.reason === "left"
+      ? `${name} wins — everyone else left`
+      : `${name} · ${pts}`;
+  }
+  if (mpOverMeta) {
+    const bits = [
+      recap.mode_label || data.mode_label,
+      recap.target ? `first to ${fmtNum(recap.target)}` : "",
+      recap.elapsed_ms ? fmtMs(recap.elapsed_ms) : "",
+    ].filter(Boolean);
+    mpOverMeta.textContent = bits.join(" · ");
+  }
+  if (mpOverStandings) {
+    mpOverStandings.innerHTML = (recap.standings || [])
+      .map((row, i) => {
+        const tags = [
+          row.is_you ? "You" : "",
+          row.winner ? "Winner" : "",
+        ].filter(Boolean).join(" · ");
+        const line = [
+          `${fmtNum(row.banks)} banked`,
+          `${fmtNum(row.farkles)} farkle${row.farkles === 1 ? "" : "s"}`,
+          row.best_bank ? `best ${fmtNum(row.best_bank)}` : "",
+        ].filter(Boolean).join(" · ");
+        return `<li class="${row.winner ? "is-winner" : ""}">
+          <span class="place">${i + 1}</span>
+          <span class="who">${esc(row.name)}${tags ? ` · ${tags}` : ""}</span>
+          <span class="pts">${fmtNum(row.total)}</span>
+          <span class="line">${line}</span>
+        </li>`;
+      })
+      .join("");
+  }
+  if (mpOverFacts) {
+    const you = (recap.standings || []).find((row) => row.is_you) || {};
+    const facts = [
+      ["Turns", fmtNum(recap.turns || 0)],
+      ["Your rolls", fmtNum(you.rolls || 0)],
+      ["Your farkles", fmtNum(you.farkles || 0)],
+      ["Timeouts", fmtNum(you.timeouts || 0)],
+    ];
+    mpOverFacts.innerHTML = facts
+      .map(([label, value]) => `<div><dt>${label}</dt><dd>${value}</dd></div>`)
+      .join("");
+  }
+  mpOver.hidden = false;
+}
+
+async function pollMp() {
+  if (!mpRoom || busy) return;
+  try {
+    const data = await api("/api/mp/state", mpPayload());
+    if (currentView === "lobby" || currentView === "multiplay") applyMpState(data);
+  } catch (err) {
+    if (currentView === "lobby") showLobbyMsg(err.message);
+  }
+}
+
+async function openLobby() {
+  closeMenu();
+  showLobbyMsg();
+  mpRoom = "";
+  lastRollSeq = 0;
+  setLobbyScreen(false);
+  if (lobbyName) {
+    try {
+      lobbyName.value = localStorage.getItem("farkle-name") || "";
+    } catch {
+      lobbyName.value = "";
+    }
+  }
+  showView("lobby");
+  syncCreateForm();
+  startMpPoll();
+  await refreshLobbyList();
+}
+
+async function leaveMp(backHome) {
+  const room = mpRoom;
+  mpRoom = "";
+  lastRollSeq = 0;
+  rivalDice = {};
+  rivalBusy = {};
+  lastRivalSeq = {};
+  mpRemainBase = 0;
+  if (tray) tray.classList.remove("is-waiting");
+  if (rivalsEl) {
+    rivalsEl.replaceChildren();
+    rivalsEl.dataset.ids = "";
+  }
+  if (mpOver) mpOver.hidden = true;
+  stopMpPoll();
+  if (room) {
+    try {
+      await api("/api/mp/leave", { player: clientId, room });
+    } catch {
+      /* already gone */
+    }
+  }
+  if (backHome) showView("home");
+}
+
+async function createMp(ev) {
+  if (ev) ev.preventDefault();
+  savePlayerName();
+  showLobbyMsg();
+  try {
+    const data = await api("/api/mp/create", {
+      player: clientId,
+      name: playerName(),
+      mode: lobbyMode.value,
+      seats: Number(lobbySeats.value),
+      forfeit_sec: Number(lobbyForfeit.value),
+    });
+    lastRollSeq = 0;
+    renderLobbyRoom(data);
+    startMpPoll();
+  } catch (err) {
+    showLobbyMsg(err.message);
+  }
+}
+
+async function joinMp(code) {
+  savePlayerName();
+  showLobbyMsg();
+  try {
+    const data = await api("/api/mp/join", {
+      player: clientId,
+      name: playerName(),
+      room: code,
+    });
+    lastRollSeq = 0;
+    renderLobbyRoom(data);
+    startMpPoll();
+  } catch (err) {
+    showLobbyMsg(err.message);
+  }
 }
 
 function renderStore(data) {
@@ -867,11 +1395,32 @@ function stickerBox(natW, natH, scale) {
   return { w: Math.max(32, Math.round(natW * k)), h: Math.max(32, Math.round(natH * k)) };
 }
 
+function stickerSignature(items) {
+  return (items || [])
+    .map((item) => [item.id, item.image, item.x, item.y, item.z, item.scale, item.rotation, item.kind].join(":"))
+    .join("|") + (decorRemoveMode ? "|peel" : "");
+}
+
+function sizeBoardSticker(img, item) {
+  const natW = img.naturalWidth;
+  const natH = img.naturalHeight;
+  if (!natW || !natH) return false;
+  const box = stickerBox(natW, natH, Number(item.scale) || 1);
+  img.style.width = `${box.w}px`;
+  img.style.height = "auto";
+  img.style.visibility = "visible";
+  return true;
+}
+
 function paintStickers(items) {
   if (placing) return;
   if (items) lastStickers = items;
+  const next = lastStickers || [];
+  const sig = stickerSignature(next);
+  if (stickerBoard.dataset.sig === sig && stickerBoard.childElementCount === next.length) return;
+  stickerBoard.dataset.sig = sig;
   stickerBoard.replaceChildren();
-  (lastStickers || []).forEach((item) => {
+  next.forEach((item) => {
     const img = document.createElement("img");
     img.className = "board-sticker";
     if (item.kind === "residue") img.classList.add("is-residue");
@@ -880,18 +1429,18 @@ function paintStickers(items) {
     img.draggable = false;
     img.dataset.id = item.id;
     img.dataset.kind = item.kind || "sticker";
-    img.src = item.image;
+    img.style.visibility = "hidden";
+    img.style.width = `${STICKER_MAX_SIDE}px`;
+    img.style.height = "auto";
     const rot = Number(item.rotation) || 0;
     img.style.left = `${(Number(item.x) || 0.5) * 100}%`;
     img.style.top = `${(Number(item.y) || 0.5) * 100}%`;
     img.style.zIndex = String(Number(item.z) || 0);
     img.style.transform = `translate(-50%, -50%) rotate(${rot}deg)`;
-    img.onload = () => {
-      const box = stickerBox(img.naturalWidth, img.naturalHeight, Number(item.scale) || 1);
-      img.style.width = `${box.w}px`;
-      img.style.height = "auto";
-    };
+    img.onload = () => sizeBoardSticker(img, item);
+    img.src = item.image;
     stickerBoard.append(img);
+    if (img.complete) sizeBoardSticker(img, item);
   });
 }
 
@@ -1089,7 +1638,9 @@ async function openStore() {
     showView(returnView);
     return;
   }
-  if (currentView === "home" || currentView === "play") returnView = currentView;
+  if (currentView === "home" || currentView === "play" || currentView === "lobby" || currentView === "multiplay") {
+    returnView = currentView;
+  }
   showView("store");
   await refreshStore();
 }
@@ -1101,7 +1652,9 @@ async function openDecor() {
     showView(returnView);
     return;
   }
-  if (currentView === "home" || currentView === "play") returnView = currentView;
+  if (currentView === "home" || currentView === "play" || currentView === "lobby" || currentView === "multiplay") {
+    returnView = currentView;
+  }
   showView("decor");
   await refreshDecor();
 }
@@ -1348,6 +1901,15 @@ document.addEventListener("keydown", (ev) => {
     showView("home");
     return;
   }
+  if (currentView === "lobby") {
+    if (mpRoom) leaveMp(false).then(() => {
+      setLobbyScreen(false);
+      startMpPoll();
+    });
+    else showView("home");
+    return;
+  }
+  if (currentView === "multiplay") return;
   if (!storePanel.hidden || !decorPanel.hidden) showView(returnView);
 });
 
@@ -1365,7 +1927,11 @@ async function orderDice() {
   if (busy || lastPaused) return;
   await wakeAttract(true);
   try {
-    applyState(await api("/api/arrange", {}));
+    const data = mpRoom
+      ? await api("/api/mp/arrange", mpPayload())
+      : await api("/api/arrange", {});
+    if (data.multiplayer) applyMpState(data);
+    else applyState(data);
   } catch (err) {
     msgEl.textContent = err.message;
   }
@@ -1383,6 +1949,10 @@ function goHome() {
   closeMenu();
   if (placing) endPlacement();
   endPeelMode();
+  if (mpRoom) {
+    leaveMp(true);
+    return;
+  }
   showView("home");
 }
 
@@ -1390,6 +1960,10 @@ function askAbandon() {
   if (busy || abandonBtn.disabled) return;
   closeMenu();
   wakeAttract(true).then(armAttract);
+  if (mpRoom) {
+    askConfirm("leave-mp", "Leave this multiplayer table?", "Leave");
+    return;
+  }
   askConfirm("abandon", "Are you sure?", "Abandon");
 }
 
@@ -1402,6 +1976,10 @@ confirmYes.addEventListener("click", async () => {
   if (busy) return;
   if (confirmAction === "new") {
     await startFreshGame();
+    return;
+  }
+  if (confirmAction === "leave-mp") {
+    await leaveMp(true);
     return;
   }
   await wakeAttract(true);
@@ -1441,6 +2019,79 @@ if (homeTutorial) {
 }
 if (tutorialBack) {
   tutorialBack.addEventListener("click", () => showView("home"));
+}
+if (homeMulti) homeMulti.addEventListener("click", openLobby);
+if (lobbyBack) {
+  lobbyBack.addEventListener("click", async () => {
+    if (mpRoom) {
+      await leaveMp(false);
+      setLobbyScreen(false);
+      showView("lobby");
+      startMpPoll();
+      await refreshLobbyList();
+      return;
+    }
+    showView("home");
+  });
+}
+if (lobbyCreateForm) lobbyCreateForm.addEventListener("submit", createMp);
+function syncCreateForm() {
+  const blitz = lobbyMode && lobbyMode.value === "blitz";
+  if (lobbySeats) {
+    if (blitz) lobbySeats.value = "2";
+    lobbySeats.disabled = blitz;
+  }
+  if (lobbySeatsField) lobbySeatsField.hidden = !!blitz;
+  if (lobbyForfeitField) lobbyForfeitField.hidden = !!blitz;
+}
+
+if (lobbyMode) {
+  lobbyMode.addEventListener("change", () => {
+    if (!lobbyForfeit) return;
+    lobbyForfeit.value = lobbyMode.value === "blitz" ? "20" : "45";
+    syncCreateForm();
+  });
+  syncCreateForm();
+}
+if (lobbyRooms) {
+  lobbyRooms.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("[data-join]");
+    if (btn) joinMp(btn.dataset.join);
+  });
+}
+if (lobbyReady) {
+  lobbyReady.addEventListener("click", async () => {
+    if (!mpRoom) return;
+    try {
+      const on = lobbyReady.textContent !== "Unready";
+      applyMpState(await api("/api/mp/ready", mpPayload({ ready: on })));
+    } catch (err) {
+      showLobbyMsg(err.message);
+    }
+  });
+}
+if (lobbyLeave) {
+  lobbyLeave.addEventListener("click", async () => {
+    await leaveMp(false);
+    setLobbyScreen(false);
+    showView("lobby");
+    startMpPoll();
+    await refreshLobbyList();
+  });
+}
+if (mpOverHome) {
+  mpOverHome.addEventListener("click", () => {
+    leaveMp(true);
+  });
+}
+if (mpOverLobby) {
+  mpOverLobby.addEventListener("click", async () => {
+    await leaveMp(false);
+    await openLobby();
+  });
+}
+if (lobbyName) {
+  lobbyName.addEventListener("change", savePlayerName);
 }
 
 showView("home");

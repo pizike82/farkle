@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 
 from .entropy import engine
 from .game import Farkle
+from .multiplayer import lobby
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB = ROOT / "web"
@@ -48,6 +49,9 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/decorations":
             self._send_json(game.decorations())
             return
+        if path == "/api/mp/lobby":
+            self._send_json(lobby.list_rooms())
+            return
         super().do_GET()
 
     def do_POST(self):
@@ -78,6 +82,24 @@ class Handler(SimpleHTTPRequestHandler):
                 payload = game.remove_sticker(str(body.get("id", "")))
             elif path == "/api/residue/remove":
                 payload = game.remove_residue(str(body.get("id", "")))
+            elif path == "/api/mp/create":
+                payload = lobby.create(body)
+            elif path == "/api/mp/join":
+                payload = lobby.join(body)
+            elif path == "/api/mp/leave":
+                payload = lobby.leave(body)
+            elif path == "/api/mp/ready":
+                payload = lobby.ready(body)
+            elif path == "/api/mp/state":
+                payload = lobby.state(body)
+            elif path == "/api/mp/roll":
+                payload = lobby.roll(body)
+            elif path == "/api/mp/select":
+                payload = lobby.toggle(body)
+            elif path == "/api/mp/bank":
+                payload = lobby.bank(body)
+            elif path == "/api/mp/arrange":
+                payload = lobby.arrange(body)
             else:
                 self._send_json({"error": "not found"}, 404)
                 return

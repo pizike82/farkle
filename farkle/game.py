@@ -6,6 +6,23 @@ from .entropy import engine
 from .stats import Stats, combo_label
 
 TARGET = 10000
+HOT_ROLL_MSG = "Hot dice — roll all six again, or bank."
+
+
+def leftover_unlocked(dice: list[dict]) -> int:
+    return sum(1 for die in dice if not die["locked"] and not die["selected"])
+
+
+def hot_ready(dice: list[dict], *, phase: str, valid: bool) -> bool:
+    return phase == "choose" and valid and leftover_unlocked(dice) == 0
+
+
+def choose_prompt(dice: list[dict], *, valid: bool, has_selected: bool) -> str:
+    if not valid:
+        return "Select scoring dice, then roll or bank." if not has_selected else "Not a scoring set."
+    if leftover_unlocked(dice) == 0:
+        return HOT_ROLL_MSG
+    return "Roll remaining dice, or bank."
 
 
 def explain_score(values: list[int]) -> dict:
@@ -320,6 +337,7 @@ class Farkle:
             "can_abandon": bool(self._session_counted and self.phase not in ("won", "abandoned")),
             "can_arrange": self.phase == "choose",
             "can_pause": self.phase not in ("won", "abandoned"),
+            "hot_ready": hot_ready(self.dice, phase=self.phase, valid=sel["valid"]),
         }
 
     def _record_lock(self, explained: dict | None) -> None:
@@ -437,12 +455,7 @@ class Farkle:
             raise ValueError("That die cannot be selected.")
         die["selected"] = not die["selected"]
         sel = self.selected_score()
-        if sel["valid"]:
-            self.message = "Roll remaining dice, or bank."
-        elif not self._selected():
-            self.message = "Select scoring dice, then roll or bank."
-        else:
-            self.message = "Not a scoring set."
+        self.message = choose_prompt(self.dice, valid=sel["valid"], has_selected=bool(self._selected()))
         self.stats.touch()
         self.stats.save()
         return self.state()
